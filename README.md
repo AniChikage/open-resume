@@ -18,7 +18,7 @@ npm run build
 npm start
 ```
 
-打开 **http://localhost:3000**。默认测试账号：**`admin` / `admin`**，登录框已自动填写。
+打开 [http://localhost:3000](http://localhost:3000)。默认测试账号：**`admin` / `admin`**，登录框已自动填写。
 
 开发模式：`npm run dev`，同样使用 3000 端口，并提供本地 API 和热更新。
 
@@ -30,7 +30,7 @@ npm start
 docker compose up -d --build
 ```
 
-打开 **http://localhost:3000**。SQLite 数据保存在命名卷 `resumes` 中，容器重建后仍保留。停止用 `docker compose down`；加 `-v` 会删除数据卷。
+打开 [http://localhost:3000](http://localhost:3000)。SQLite 数据保存在命名卷 `resumes` 中，容器重建后仍保留。停止用 `docker compose down`；加 `-v` 会删除数据卷。
 
 也可直接构建运行：
 
@@ -43,7 +43,7 @@ docker run -d --name open-resume -p 127.0.0.1:3000:3000 -v open-resume-data:/dat
 
 - 156 款简历模板，全部开放，无会员校验。
 - 简历数量不限、编辑和自动保存、撤销重做、照片、模块排序、实时预览。
-- PDF、PNG（`.doc`）和 JSON 导出，无付费导出或水印。
+- PDF、PNG、Word（`.doc`）和 JSON 导出，无付费导出或水印。
 - 英语、简体中文、繁体中文、日语、韩语、法语和俄语界面。
 - 本地 SQLite 持久化和服务器端会话；一个安装实例使用一个共享工作空间。
 - 可选的 AI 职位润色，自带 API Key，应用不设每日次数或冷却限制。
