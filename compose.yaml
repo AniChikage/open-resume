@@ -1,0 +1,17 @@
+services:
+  open-resume:
+    build: .
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      LOCAL_USERNAME: ${LOCAL_USERNAME:-}
+      LOCAL_PASSWORD: ${LOCAL_PASSWORD:-}
+      AI_API_KEY: ${AI_API_KEY:-}
+      AI_BASE_URL: ${AI_BASE_URL:-https://openrouter.ai/api/v1}
+      AI_MODEL: ${AI_MODEL:-}
+      SECURE_COOKIE: ${SECURE_COOKIE:-false}
+    volumes:
+      - resumes:/data
+    restart: unless-stopped
+volumes:
+  resumes:
