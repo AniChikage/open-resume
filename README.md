@@ -11,6 +11,8 @@
 需要 **Node.js 24 或以上**，不需要数据库账号、Cloudflare、Google OAuth 或支付配置。
 
 ```bash
+git clone https://github.com/AniChikage/open-resume.git
+cd open-resume
 npm ci
 npm run build
 npm start
@@ -21,6 +23,8 @@ npm start
 开发模式：`npm run dev`，同样使用 3000 端口，并提供本地 API 和热更新。
 
 ## Docker 部署
+
+克隆本仓库并进入 `open-resume` 目录后运行：
 
 ```bash
 docker compose up -d --build

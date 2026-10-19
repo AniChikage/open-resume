@@ -1,8 +1,8 @@
 # Verification · 2026-10-19
 
 This is the self-hosted Open Resume project, with the requested default
-account `admin / admin`. These results describe local validation, not a public
-release or a real AI provider transaction.
+account `admin / admin`. These functional results describe local validation,
+not a hosted production deployment or a real AI provider transaction.
 
 ## Passed
 
@@ -79,4 +79,5 @@ release or a real AI provider transaction.
   copy; only English and Simplified Chinese received browser interaction checks.
 - The app builds with the inherited export-bundle size warnings. Exhaustive
   template/platform/export-format compatibility was not tested.
-- No GitHub repository was created and no upstream production release was changed.
+- Public source repository: [AniChikage/open-resume](https://github.com/AniChikage/open-resume).
+  The upstream JustCV repository and production deployment were not changed.
