@@ -35,5 +35,5 @@
     "shadcn": "^4.21.0"
   },
   "license": "MIT",
-  "description": "Self-hosted resume builder based on JustCV. All templates and unlimited resumes, with local SQLite storage."
+  "description": "Self-hosted resume builder. All templates and unlimited resumes, with local SQLite storage."
 }

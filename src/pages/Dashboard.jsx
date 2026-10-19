@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { EyeOff, FileText, LayoutTemplate, Loader2, Plus, RotateCcw, Trash2 } from 'lucide-react';
 import { navigate } from '../lib/router.js';
 import { createResume, deleteResume, listResumes } from '../lib/storage.js';
-import { buildBlankResume, DEFAULT_SETTINGS, RESUME_TEMPLATES } from '../data.js';
+import { buildBlankResume, DEFAULT_SETTINGS } from "../data.js";
 import { Button } from '../components/ui/button.jsx';
 import { Card, CardContent, CardFooter } from '../components/ui/card.jsx';
 import {

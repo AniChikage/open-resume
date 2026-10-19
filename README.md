@@ -1,6 +1,6 @@
 # Open Resume
 
-**免费、自部署的简历制作工具，基于 JustCV。全部模板开放，简历数量不限，导出免费。**
+**免费、自部署的简历制作工具。全部模板开放，简历数量不限，导出免费。**
 
 不想折腾部署？欢迎使用 **[justcv.org](https://justcv.org)** 在线版，支持项目继续维护。托管版按官网公布的方案提供服务；本项目的自部署功能不受托管版付费方案约束。
 
@@ -37,7 +37,7 @@ docker run -d --name open-resume -p 127.0.0.1:3000:3000 -v open-resume-data:/dat
 
 ## 包含什么
 
-- JustCV 的 150+ 简历模板，全部开放，无会员校验。
+- 156 款简历模板，全部开放，无会员校验。
 - 简历数量不限、编辑和自动保存、撤销重做、照片、模块排序、实时预览。
 - PDF、PNG（`.doc`）和 JSON 导出，无付费导出或水印。
 - 英语、简体中文、繁体中文、日语、韩语、法语和俄语界面。
@@ -62,7 +62,7 @@ Node 模式默认将 SQLite 保存到项目的 `.data/open-resume.sqlite`，可�
 
 可通过 `PORT` 改端口；默认只监听 `127.0.0.1`。如需局域网访问，配置 `HOST=0.0.0.0`；Docker Compose 默认端口也只绑定本机。公网部署应改用自己的账号，配置 HTTPS 反向代理并设置 `SECURE_COOKIE=true`。每次 HTTP 请求的大小和 AI 输入长度有保护边界，不影响模板、简历数量和导出权限。
 
-分享链接把简历内容编码在 URL 的片段中，不会上传到 JustCV。其他人必须能访问你的部署地址才可打开；自部署站点不是公开托管服务。分享不会自动包含上传的头像。
+分享链接把简历内容编码在 URL 的片段中，无需第三方存储。其他人必须能访问你的部署地址才可打开；自部署站点不是公开托管服务。分享不会自动包含上传的头像。
 
 ## 可选 AI 润色
 
@@ -93,4 +93,4 @@ HTTP 测试使用独立临时数据库；AI 测试使用模拟提供商，不消
 
 ---
 
-**A free, self-hosted resume builder based on JustCV.** All templates, unlimited resumes, and free exports. Run `npm ci && npm run build && npm start`, or `docker compose up -d --build`, then open http://localhost:3000 and sign in with **admin / admin**. Requires Node.js 24+. Data lives in local SQLite, and each installation has one shared workspace. Optional AI uses your own key and provider account. Prefer a hosted service? Visit **[justcv.org](https://justcv.org)** to support the project.
+**A free, self-hosted resume builder.** All templates, unlimited resumes, and free exports. Run `npm ci && npm run build && npm start`, or `docker compose up -d --build`, then open http://localhost:3000 and sign in with **admin / admin**. Requires Node.js 24+. Data lives in local SQLite, and each installation has one shared workspace. Optional AI uses your own key and provider account. Prefer a hosted service? Visit **[justcv.org](https://justcv.org)** to support the project.

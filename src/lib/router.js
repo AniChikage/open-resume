@@ -1,4 +1,4 @@
-import { useState, useEffect, useSyncExternalStore } from 'react';
+import { useSyncExternalStore } from "react";
 
 function parseHash() {
   const fragment = (typeof window === 'undefined' ? '' : window.location.hash).replace(/^#/, '');

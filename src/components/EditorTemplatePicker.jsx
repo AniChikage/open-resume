@@ -7,7 +7,7 @@ import { Badge } from './ui/badge.jsx';
 import { NativeSelect, NativeSelectOption } from './ui/native-select.jsx';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog.jsx';
 
-const RECENT_KEY = 'justcv_recent_templates';
+const RECENT_KEY = 'openresume_recent_templates';
 const PAGE_SIZE = 9;
 const readRecent = () => {
   try { const value = JSON.parse(localStorage.getItem(RECENT_KEY) || '[]'); return Array.isArray(value) ? value.filter((id) => typeof id === 'string').slice(0, 4) : []; }

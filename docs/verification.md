@@ -1,6 +1,6 @@
 # Verification · 2026-10-19
 
-This is the JustCV-derived Open Resume project, with the requested default
+This is the self-hosted Open Resume project, with the requested default
 account `admin / admin`. These results describe local validation, not a public
 release or a real AI provider transaction.
 
@@ -44,8 +44,24 @@ release or a real AI provider transaction.
   changed while the named volume, saved documents, and old session remained.
   Browser login showed the eight persisted documents without console errors.
   Details and dependency-audit boundaries: [Docker acceptance](docker-acceptance.md).
-- The original JustCV snapshot's 98 source/static files still matched their
-  SHA-256 hashes after the new project was built and tested.
+
+## Independent-project cleanup
+
+- Removed 20 unused files, including commercial/marketing translation modules,
+  unused UI components, empty analytics shims, and the upstream file-hash manifest.
+  The hosted-service links and source/license attribution remain intentional.
+- Merged the active messages into `src/lib/i18n.js`: 284 retained messages,
+  compared against the prior translator in seven languages (1,988 exact checks).
+  Removed inactive payment/quota text, template entitlement branches, and dead
+  tracking calls. Browser storage keys and both icons now use Open Resume.
+- The local production build and all 12 tests passed. Rebuilt the Docker preview
+  and reran the same 12 tests inside Linux successfully. The earlier persisted
+  Docker test document remained present.
+- Browser acceptance on the new Docker build: choose a template while signed
+  out, sign in with `admin / admin`, enter the selected template, rename, switch
+  to Simplified Chinese, reload the saved document, and export a JSON backup.
+  The saved title and exported JSON were independently checked through the API
+  and filesystem; no relevant console errors were recorded.
 
 ## Boundaries
 
@@ -63,4 +79,4 @@ release or a real AI provider transaction.
   copy; only English and Simplified Chinese received browser interaction checks.
 - The app builds with the inherited export-bundle size warnings. Exhaustive
   template/platform/export-format compatibility was not tested.
-- No GitHub repository was created and no production JustCV release was changed.
+- No GitHub repository was created and no upstream production release was changed.

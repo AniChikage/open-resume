@@ -1,11 +1,11 @@
 import { openText } from '../lib/open-copy.js';
 import { useState } from 'react';
-import { Check, ChevronDown, Languages, LogIn, LogOut, Menu, Search, X } from 'lucide-react';
+import { Check, ChevronDown, Languages, LogIn, LogOut, Menu, X } from "lucide-react";
 import { SUPPORTED_LANGUAGES, useTheme } from '../lib/theme.jsx';
 import { useAuth } from '../lib/auth.jsx';
-import { navigate } from '../lib/router.js';
+
 import { Button } from './ui/button.jsx';
-import { Input } from './ui/input.jsx';
+
 import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar.jsx';
 import {
   DropdownMenu,
@@ -35,7 +35,7 @@ function UserMenu({ user, login, logout }) {
     );
   }
 
-  const initial = (user.name || user.email || 'J').trim().slice(0, 1).toUpperCase();
+  const initial = (user.name || user.email || 'O').trim().slice(0, 1).toUpperCase();
 
   return (
     <DropdownMenu>
@@ -45,14 +45,14 @@ function UserMenu({ user, login, logout }) {
         }
       >
         <Avatar size="lg">
-          {user?.picture ? <AvatarImage src={user.picture} alt={user.name || t('JustCV user')} /> : null}
+          {user?.picture ? <AvatarImage src={user.picture} alt={user.name || t('Account')} /> : null}
           <AvatarFallback className="bg-foreground font-semibold text-background">{initial}</AvatarFallback>
         </Avatar>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="min-w-56">
         <DropdownMenuGroup>
           <DropdownMenuLabel>
-            <span className="block truncate text-foreground">{user.name || t('JustCV user')}</span>
+            <span className="block truncate text-foreground">{user.name || t('Account')}</span>
             <span className="mt-0.5 block truncate font-normal text-muted-foreground">{user.email}</span>
           </DropdownMenuLabel>
         </DropdownMenuGroup>

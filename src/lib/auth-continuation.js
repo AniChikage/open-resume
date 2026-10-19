@@ -3,7 +3,7 @@ const MAX_AGE_MS = 15 * 60 * 1000;
 
 export function isSafeContinuation(path) {
   return typeof path === 'string' && path.length < 220
-    && /^\/(?:templates(?:\?mode=free&use=[a-z0-9-]+)?|pricing|dashboard)$/.test(path);
+    && /^\/(?:templates(?:\?use=[a-z0-9-]+)?|dashboard)$/.test(path);
 }
 
 export function rememberContinuation(path, storage, now = Date.now()) {

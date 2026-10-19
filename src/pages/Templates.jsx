@@ -25,13 +25,12 @@ import {
   SheetHeader,
   SheetTitle,
 } from '../components/ui/sheet.jsx';
-import { Tabs, TabsList, TabsTrigger } from '../components/ui/tabs.jsx';
+
 import { SiteFooter, SiteHeader } from '../components/SiteChrome.jsx';
 import { createResume, listResumes } from '../lib/storage.js';
 import {
   buildResumeFromTemplate, DEFAULT_SETTINGS, localizeTemplateLanguage, localizeTemplateTag, RESUME_TEMPLATES,
 } from '../data.js';
-import { trackProductMetric } from '../lib/product-metrics.js';
 import { ResumePreview } from './Editor.jsx';
 
 const A4_PREVIEW_WIDTH = 794;
@@ -130,17 +129,16 @@ function TemplateThumb({ template, lang }) {
   );
 }
 
-function TemplateCard({ template, lang, t, unlocked, onPreview, onUse }) {
-  const locked = false;
+function TemplateCard({ template, lang, t, onPreview, onUse }) {
   return (
     <article className="group min-w-0">
       <div className="relative overflow-hidden rounded-md border border-border bg-white transition hover:border-primary/45">
         <div aria-hidden="true"><TemplateThumb template={template} lang={lang} /></div>
         <div className="absolute inset-x-0 bottom-0 flex gap-2 border-t border-border bg-white/96 p-3 transition-transform md:translate-y-full group-hover:translate-y-0 group-focus-within:translate-y-0">
           <Button variant="outline" className="flex-1" onClick={onPreview}>{t('Preview')}</Button>
-          <Button className="flex-1" onClick={onUse}>{locked ? t('Unlock') : t('Use')}</Button>
+          <Button className="flex-1" onClick={onUse}>{t('Use')}</Button>
         </div>
-        <Badge className="absolute right-2 top-2" variant={locked ? 'outline' : 'secondary'}>{template.free ? t('Free') : locked ? 'PRO' : t('Unlocked')}</Badge>
+        <Badge className="absolute right-2 top-2" variant="secondary">{t('Free')}</Badge>
       </div>
       <div className="mt-3">
         <h3 className="truncate text-sm font-semibold">{template.label[lang]}</h3>
@@ -152,8 +150,7 @@ function TemplateCard({ template, lang, t, unlocked, onPreview, onUse }) {
   );
 }
 
-function TemplatePreviewDialog({ template, lang, t, unlocked, onClose, onUse }) {
-  const locked = false;
+function TemplatePreviewDialog({ template, lang, t, onClose, onUse }) {
   return (
     <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
       <DialogContent closeLabel={t('Close')} className="h-[84vh] max-w-[calc(100%-2rem)] gap-0 overflow-hidden p-0 sm:max-w-5xl">
@@ -194,14 +191,10 @@ export default function Templates() {
   const { user, login, loading: authLoading } = useAuth();
   const [selectedTags, setSelectedTags] = useState([]);
   const [searchTerm, setSearchTerm] = useState(params.q || '');
-  const [mode, setMode] = useState(params.mode === 'free' ? 'free' : 'all');
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState('');
   const creatingRef = useRef(false);
 
-  useEffect(() => {
-    if (params.mode === 'free') { setMode('free'); setSearchTerm(''); setSelectedTags([]); }
-  }, [params.mode]);
   const [sort, setSort] = useState('recommended');
   const [currentPage, setCurrentPage] = useState(1);
   const [preview, setPreview] = useState(null);
@@ -236,22 +229,21 @@ export default function Templates() {
     if (sort === 'popular') return [...list].sort((a, b) => b.usage - a.usage);
     if (sort === 'newest') return [...list].reverse();
     return [...list].sort((a, b) => Number(Boolean(b.free)) - Number(Boolean(a.free)));
-  }, [mode, searchTerm, selectedTags, sort]);
+  }, [searchTerm, selectedTags, sort]);
 
   const totalPages = Math.max(1, Math.ceil(filteredTemplates.length / PAGE_SIZE));
   const pageTemplates = filteredTemplates.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
-  useEffect(() => { setCurrentPage(1); }, [mode, searchTerm, selectedTags, sort]);
+  useEffect(() => { setCurrentPage(1); }, [searchTerm, selectedTags, sort]);
   useEffect(() => { setCurrentPage((page) => Math.min(page, totalPages)); }, [totalPages]);
 
-  useEffect(() => { void trackProductMetric('landing_view', { oncePerSession: true }); }, []);
 
   const toggleTag = (tag) => setSelectedTags((tags) => tags.includes(tag) ? tags.filter((item) => item !== tag) : [...tags, tag]);
 
   const useTemplate = async (template) => {
     if (creatingRef.current) return;
     if (!user) {
-      login(`/templates?mode=free&use=${template.id}`);
+      login(`/templates?use=${template.id}`);
       return;
     }
     creatingRef.current = true;
@@ -270,13 +262,13 @@ export default function Templates() {
 
   useEffect(() => {
     if (authLoading || !params.use) return;
-    const template = RESUME_TEMPLATES.find((item) => item.free && item.id === params.use);
+    const template = RESUME_TEMPLATES.find((item) => item.id === params.use);
     if (!user) {
-      if (template) login(`/templates?mode=free&use=${template.id}`);
+      if (template) login(`/templates?use=${template.id}`);
       return;
     }
     // Remove the one-shot action before starting; rerenders cannot create duplicates.
-    window.history.replaceState(null, '', '/#/templates?mode=free');
+    window.history.replaceState(null, '', '/#/templates');
     if (template) void useTemplate(template);
   }, [user, authLoading, params.use]);
 
@@ -343,7 +335,7 @@ export default function Templates() {
           {pageTemplates.length ? (
             <div className="mt-5 grid gap-x-5 gap-y-8 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
               {pageTemplates.map((template) => (
-                <TemplateCard key={template.id} template={template} lang={lang} t={t} unlocked={true} onPreview={() => setPreview(template)} onUse={() => void useTemplate(template)} />
+                <TemplateCard key={template.id} template={template} lang={lang} t={t} onPreview={() => setPreview(template)} onUse={() => void useTemplate(template)} />
               ))}
             </div>
           ) : (
@@ -370,7 +362,7 @@ export default function Templates() {
           template={preview}
           lang={lang}
           t={t}
-          unlocked={true}
+
           onClose={() => setPreview(null)}
           onUse={() => { void useTemplate(preview); setPreview(null); }}
         />

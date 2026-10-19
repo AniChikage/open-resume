@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createEditorHistory } from '../src/lib/editor-history.js';
-import { EDITOR_TRANSLATIONS } from '../src/lib/editor-translations.js';
+import { translate } from '../src/lib/i18n.js';
 const initial = { resume: { title: 'CV', sections: [{ id: 'work', items: [{ id: 'one', body: 'Original' }] }] }, settings: { template: 'classic', accent: 'purple' } };
 
 test('deletion and appearance changes undo and redo as complete document operations', () => {
@@ -53,8 +53,8 @@ test('snapshot identity distinguishes a pending save from newer edits', () => {
   assert.notEqual(h.getSnapshot().present, saved);
 });
 
-test('new editor messages cover all six non-English languages', () => {
-  for (const translations of Object.values(EDITOR_TRANSLATIONS)) {
-    for (const lang of ['zh', 'zh-TW', 'ja', 'ko', 'fr', 'ru']) assert.ok(translations[lang]);
+test('editor actions remain translated in all six non-English languages', () => {
+  for (const message of ['Undo', 'Redo', 'Apply template', 'Retry', 'Close']) {
+    for (const lang of ['zh', 'zh-TW', 'ja', 'ko', 'fr', 'ru']) assert.notEqual(translate(lang, message), message);
   }
 });

@@ -27,7 +27,6 @@ import { LanguageMenu } from '../components/SiteChrome.jsx';
 import { Badge } from '../components/ui/badge.jsx';
 import { Skeleton } from '../components/ui/skeleton.jsx';
 import { cn } from '../lib/utils.js';
-import { trackProductMetric } from '../lib/product-metrics.js';
 import { useTheme } from '../lib/theme.jsx';
 
 const iconMap = {
@@ -414,7 +413,6 @@ export default function Editor({ resumeId }) {
   const [shareUrl, setShareUrl] = useState('');
   const [checkResult, setCheckResult] = useState(null);
   const [tailorSnapshot, setTailorSnapshot] = useState(null);
-  useEffect(() => { if (resume) void trackProductMetric('editor_opened', { oncePerSession: true }); }, [Boolean(resume)]);
   const [loadError, setLoadError] = useState(false);
   const [loadAttempt, setLoadAttempt] = useState(0);
   const paperRef = useRef(null);
@@ -636,14 +634,12 @@ export default function Editor({ resumeId }) {
           surface.destroy();
         }
       }
-      void trackProductMetric(`export_${type}_generated`);
       setExportFeedback({
         type: 'success',
         message: t('{type} is ready', { type: t(EXPORT_TYPE_LABELS[type] || 'File') }),
         detail: t("If you don't see a save prompt, check your browser's download settings."),
       });
     } catch {
-      void trackProductMetric(`export_${type}_failed`);
       setExportFeedback({
         type: 'error',
         message: t('{type} export failed', { type: t(EXPORT_TYPE_LABELS[type] || 'File') }),

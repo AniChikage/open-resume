@@ -1,5 +1,4 @@
 import { buildBlankResume, DEFAULT_SETTINGS, inferSystemResumeTitleKind } from '../data.js';
-import { analyticsRequestHeaders, trackAnalyticsEvent } from '../../public/analytics.js';
 
 const clone = (value) =>
   typeof structuredClone === 'function'
@@ -8,17 +7,13 @@ const clone = (value) =>
 
 async function api(path, options = {}) {
   const res = await fetch(`/api/resumes${path}`, {
-    headers: { 'Content-Type': 'application/json', ...analyticsRequestHeaders() },
+    headers: { 'Content-Type': 'application/json' },
     ...options,
   });
   if (res.status === 401) throw new Error('UNAUTHORIZED');
   if (res.status === 404) throw new Error('NOT_FOUND');
   if (!res.ok) throw new Error(`API error: ${res.status}`);
   return res.json();
-}
-
-export function migrateFromLegacy() {
-  // No-op: data now lives in D1
 }
 
 export async function listResumes() {
@@ -54,7 +49,6 @@ export async function createResume(resume = null, settings = null) {
     settings: resolvedSettings,
   };
   const result = await api('', { method: 'POST', body: JSON.stringify(data) });
-  void trackAnalyticsEvent('resume_created');
   return { id: result.id, title: data.title, updatedAt: result.updated_at || Date.now(), resume: data.resume, settings: data.settings };
 }
 

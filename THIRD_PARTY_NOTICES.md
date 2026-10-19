@@ -1,8 +1,8 @@
 # Third-party notices
 
 Open Resume is derived from JustCV by AniChikage. Application code is distributed
-under the MIT license in `LICENSE`. The snapshot provenance is recorded in
-`docs/upstream-snapshot.json`; it includes no upstream Git history or databases.
+under the MIT license in `LICENSE`. The source was adapted from a local snapshot
+on 2026-10-19, without copying upstream Git history or databases.
 
 The bundled Noto Sans CJK SC and Noto Serif CJK SC fonts in `public/fonts/` retain
 their original embedded copyright and naming metadata. They use the SIL Open
