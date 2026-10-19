@@ -36,15 +36,25 @@ release or a real AI provider transaction.
   a daily quota or cooldown. The configured endpoint/model were used and contact
   fields were excluded. Missing AI configuration returned 503.
 - `docker compose config --quiet` passed.
+- Docker image build and Compose startup passed on Docker Desktop 29.8.2,
+  Linux ARM64 / Node.js 24.22.0, running as UID 1000. All 12 tests also passed
+  inside the Linux build-stage image with external networking disabled.
+- Container HTTP checks passed for login, eight resumes, production assets,
+  fonts, and private-path isolation. After a force-recreate, the container ID
+  changed while the named volume, saved documents, and old session remained.
+  Browser login showed the eight persisted documents without console errors.
+  Details and dependency-audit boundaries: [Docker acceptance](docker-acceptance.md).
 - The original JustCV snapshot's 98 source/static files still matched their
   SHA-256 hashes after the new project was built and tested.
 
 ## Boundaries
 
-- Docker CLI is installed on the test Mac but its engine is not running. The
-  image build, container startup, and Linux Node 24 runtime have not been tested.
-- The host Node runtime was 26.7.0. Node 24 compatibility was checked using the
-  actual HTTP/SQLite test suite, but the Linux container runtime remains untested.
+- The host Node runtime was 26.7.0. The Linux container was tested on ARM64 with
+  Node.js 24.22.0; a separate Linux AMD64 run has not been performed.
+- The Docker build's production dependency audit reported nine advisories
+  (one critical, five high, three moderate), including jsPDF and Vite. These
+  inherited dependency findings were recorded, not remediated by this Docker
+  test. Functional acceptance does not establish that dependencies are secure.
 - AI validation used a synthetic provider. No paid provider request was sent;
   model compatibility, provider limits, and fees depend on the deployer's setup.
 - This version has one shared workspace per installation, not multi-tenant
