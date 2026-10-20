@@ -6,6 +6,14 @@
 
 > 本项目源自 [AniChikage/justcv](https://github.com/AniChikage/justcv)，与 xitanggg/open-resume 没有从属关系。
 
+## 界面预览
+
+实际运行的简体中文界面，以下为模板和虚构演示资料，不代表真实求职经历。
+
+![Open Resume 编辑器：内容编辑与简历实时预览](docs/images/editor.png)
+
+![Open Resume 模板库：156 款模板全部开放](docs/images/templates.png)
+
 ## 一分钟启动
 
 需要 **Node.js 24 或以上**，不需要数据库账号、Cloudflare、Google OAuth 或支付配置。
