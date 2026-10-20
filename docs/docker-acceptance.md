@@ -1,4 +1,28 @@
-# Docker acceptance · 2026-10-19
+# Docker acceptance
+
+## TypeScript image · 2026-10-20
+
+- Built the migrated source using the updated Dockerfile. Its build stage runs
+  `npm test` and `npm run build` with external networking disabled, including
+  all 15 tests and strict TypeScript checking. The production stage runs
+  `node server/index.ts` on Node.js 24.22.0 as UID 1000, with development
+  dependencies removed.
+- New image configuration digest:
+  `sha256:512a70aa95372e852efc797ac7b01278fc54bec8b182c1b573966a2dd7e4f3d0`.
+- Reused the existing Compose project, loopback port 3300, and SQLite volume.
+  Startup and a subsequent force-recreate both completed healthy. All ten
+  pre-migration documents retained their content and timestamps, independently
+  checked by normalized SHA-256 hashes; the new acceptance document persisted
+  as well.
+- Browser login, editing, undo/redo, persistence, filter reset, responsive
+  rendering, and actual JSON/PNG/PDF downloads passed against this container.
+  The downloaded PDF parsed as one A4 page; the PNG was visually inspected.
+- This was Linux ARM64 validation. Production dependency versions and their
+  previously recorded advisories were not changed by this migration.
+  See [the migration verification](verification.md#typescript-migration--2026-10-20)
+  for details.
+
+## Initial image · 2026-10-19
 
 The existing Dockerfile and Compose configuration built and ran successfully.
 No application or Dockerfile fix was needed for this acceptance run.

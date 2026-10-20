@@ -22,6 +22,8 @@ npm start
 
 开发模式：`npm run dev`，同样使用 3000 端口，并提供本地 API 和热更新。
 
+前端、Node 服务端、测试和 Vite 配置均采用 TypeScript，开启 `strict` 检查。Node 24 直接运行服务端 `.ts` 文件；浏览器代码由 Vite 构建，不需要额外的运行时加载器。
+
 ## Docker 部署
 
 克隆本仓库并进入 `open-resume` 目录后运行：
@@ -85,9 +87,12 @@ AI 服务商费用、余额和自身速率限制由部署者承担；应用不�
 ## 开发与验证
 
 ```bash
+npm run typecheck
 npm test
 npm run build
 ```
+
+`npm run build` 会先运行类型检查，类型错误会阻止构建。GitHub Actions 和 Docker 构建也执行测试与类型检查。共享的简历、模板、设置和接口类型位于 `src/types.ts`；外部 JSON 的运行时校验位于 `src/lib/validation.ts`。
 
 HTTP 测试使用独立临时数据库；AI 测试使用模拟提供商，不消费真实额度。实际验收情况见 [docs/verification.md](docs/verification.md)。
 

@@ -1,4 +1,46 @@
-# Verification · 2026-10-19
+# Verification
+
+## TypeScript migration · 2026-10-20
+
+- Migrated the frontend, local HTTP/SQLite server, tests, and Vite configuration
+  to TypeScript. All 53 TypeScript/TSX files are covered by `strict: true` and
+  `tsc --noEmit`; no explicit `any` types or TypeScript suppression comments were
+  added. Shared document types live in `src/types.ts`, with runtime validation
+  for JSON, stored documents, shared links, cached drafts, and AI inputs.
+- `npm run typecheck`, all 15 tests, and `npm run build` passed. The added tests
+  validate 156 templates in all seven locales, malformed document rejection,
+  and shared-link round trips and failure handling.
+- The Docker image ran all 15 tests and the type-checked production build with
+  external networking disabled for those build steps. The runtime uses Node.js
+  24.22.0's native TypeScript support without a TypeScript runtime dependency.
+- `npm run dev` served HTML, the transformed `src/main.tsx`, the health endpoint,
+  and a successful `admin / admin` login on isolated port 3310. The temporary
+  development server was stopped afterward.
+- Upgraded the existing Docker preview on `http://localhost:3300`, then
+  force-recreated it again. All ten pre-migration documents retained their
+  content and timestamps, verified using SHA-256 with response key order
+  normalized. A new browser-created acceptance document also persisted, for
+  eleven documents total. The container remained healthy and used the same
+  named volume.
+- Browser acceptance on the new container passed: empty-results filter reset,
+  logout, default-account login, selected-template creation, editing, undo,
+  redo, save, reload, and actual JSON/PNG/PDF downloads. The migration also
+  fixed the reset button's stale setter and malformed shared-link decompression
+  that previously left a rejected stream promise unhandled.
+- Independently parsed the exported JSON and verified the edited profile name.
+  The PNG was 1588 × 2246 and was visually inspected. The PDF parsed as one A4
+  page (595.28 × 841.89 pt), approximately 28 MB; export-size optimization was
+  outside this migration.
+- Desktop (1440 × 1000) and mobile (375 × 844, including preview mode) rendered
+  correctly; mobile document width equaled the viewport width. No browser
+  warning/error logs were recorded during these checks. Screenshots and local
+  download files are kept outside the source tree.
+- Added GitHub Actions to run lockfile installation, tests, strict type checking,
+  and the production build on Node.js 24 for pushes to `main` and pull requests.
+  Production dependency versions were preserved; the inherited dependency
+  advisories and export-bundle warnings below remain applicable.
+
+## Initial self-hosted acceptance · 2026-10-19
 
 This is the self-hosted Open Resume project, with the requested default
 account `admin / admin`. These functional results describe local validation,
