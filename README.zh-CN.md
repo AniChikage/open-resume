@@ -33,9 +33,9 @@
 
 选择模板、修改内容、调整样式，再导出自己的简历。
 
-[![Open Resume — 英文操作演示](docs/images/demo.gif)](docs/media/open-resume-demo.mp4)
+[![Open Resume — 英文操作演示](docs/images/demo.gif)](https://github.com/AniChikage/open-resume/raw/refs/heads/main/docs/media/open-resume-demo.mp4)
 
-**[观看 30 秒演示短视频（MP4）](docs/media/open-resume-demo.mp4)** · [文字步骤](docs/media/README.md)
+**[下载 30 秒演示短视频（MP4）](https://github.com/AniChikage/open-resume/raw/refs/heads/main/docs/media/open-resume-demo.mp4)** · [文字步骤](docs/media/README.md)
 
 截图和演示均来自实际运行的应用，使用虚构的英文示例资料。
 

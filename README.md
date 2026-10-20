@@ -33,9 +33,9 @@
 
 Choose a template, edit your details, change the style, and export your resume.
 
-[![Open Resume — animated English walkthrough](docs/images/demo.gif)](docs/media/open-resume-demo.mp4)
+[![Open Resume — animated English walkthrough](docs/images/demo.gif)](https://github.com/AniChikage/open-resume/raw/refs/heads/main/docs/media/open-resume-demo.mp4)
 
-**[Watch the 30-second demo (MP4)](docs/media/open-resume-demo.mp4)** · [Text walkthrough](docs/media/README.md)
+**[Download the 30-second demo (MP4)](https://github.com/AniChikage/open-resume/raw/refs/heads/main/docs/media/open-resume-demo.mp4)** · [Text walkthrough](docs/media/README.md)
 
 Screenshots and the walkthrough show the real app with fictional English sample data.
 

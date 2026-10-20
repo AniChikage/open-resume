@@ -1,6 +1,6 @@
 # Open Resume walkthrough
 
-[Watch the video](open-resume-demo.mp4) · [Animated preview](../images/demo.gif)
+[Download the video](https://github.com/AniChikage/open-resume/raw/refs/heads/main/docs/media/open-resume-demo.mp4) · [Animated preview](../images/demo.gif)
 
 A 30-second silent walkthrough, edited from real application captures. The
 interface and sample resume are in English. All resume details are fictional;
