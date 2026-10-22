@@ -1,5 +1,7 @@
-import { EyeOff,FileText,LayoutTemplate,Loader2,Plus,RotateCcw,Trash2 } from 'lucide-react';
+import { Copy,EyeOff,FileText,Upload,LayoutTemplate,Loader2,Pencil,Plus,RotateCcw,Search,Trash2 } from 'lucide-react';
 import { useEffect,useRef,useState } from 'react';
+import { ImportResumeDialog } from '../components/ImportResumeDialog.tsx';
+import { removeDraft } from '../lib/drafts.ts';
 import { SiteFooter,SiteHeader } from '../components/SiteChrome.tsx';
 import { Button } from '../components/ui/button.tsx';
 import { Card,CardContent,CardFooter } from '../components/ui/card.tsx';
@@ -12,14 +14,18 @@ DialogHeader,
 DialogTitle,
 } from '../components/ui/dialog.tsx';
 import { Skeleton } from '../components/ui/skeleton.tsx';
+import { Input } from '../components/ui/input.tsx';
+import { NativeSelect,NativeSelectOption } from '../components/ui/native-select.tsx';
 import { buildBlankResume,DEFAULT_SETTINGS } from "../data.ts";
 import { useAuth } from '../lib/auth.tsx';
 import { openText } from '../lib/open-copy.ts';
 import { navigate } from '../lib/router.ts';
-import { createResume,deleteResume,listResumes } from '../lib/storage.ts';
+import { createResume,deleteResume,duplicateResume,listResumes,renameResume } from '../lib/storage.ts';
+import { renameDashboardDraft,selectDashboardResumes } from '../lib/dashboard.ts';
+import type { ResumeSort } from '../lib/dashboard.ts';
 import { useTheme } from '../lib/theme.tsx';
 import type { EditorDocument,ResumeEntry,Translate,WorkspaceUser } from '../types.ts';
-import { ResumePreview } from './Editor.tsx';
+import { ResumePreview } from '../components/ResumePreview.tsx';
 
 const A4_PREVIEW_WIDTH = 794;
 const A4_PREVIEW_HEIGHT = 1123;
@@ -45,7 +51,7 @@ function readHiddenIds(user: WorkspaceUser | null) {
 }
 
 function writeHiddenIds(user: WorkspaceUser | null, ids: string[]) {
-  if (typeof window !== 'undefined' && user) window.localStorage.setItem(getStorageKey(user), JSON.stringify(ids));
+  try { if (typeof window !== 'undefined' && user) window.localStorage.setItem(getStorageKey(user), JSON.stringify(ids)); } catch { /* Hidden state still works for this visit. */ }
 }
 
 function ResumeThumb({ resume, settings }: EditorDocument) {
@@ -91,28 +97,31 @@ function ResumeThumb({ resume, settings }: EditorDocument) {
   );
 }
 
-function ResumeCard({ entry, onOpen, onHide, onDelete }: {entry:ResumeEntry;onOpen:()=>void;onHide:()=>void;onDelete:()=>void}) {
+function ResumeCard({ entry, onOpen, onHide, onDelete, onDuplicate, onRename, busy }: {entry:ResumeEntry;onOpen:()=>void;onHide:()=>void;onDelete:()=>void;onDuplicate:()=>void;onRename:()=>void;busy:boolean}) {
   const { lang, t } = useTheme();
   return (
     <Card className="group overflow-hidden rounded-md shadow-none transition hover:border-primary/45">
       <CardContent className="p-0">
-        <button type="button" className="relative block aspect-[210/297] w-full overflow-hidden bg-white text-left" onClick={onOpen}>
+        <button type="button" className="relative block aspect-[210/297] w-full overflow-hidden bg-white text-left" onClick={onOpen} aria-label={t('Edit {name}', { name: entry.title || t('Untitled resume') })}>
           <ResumeThumb resume={entry.resume} settings={entry.settings} />
           <span className="absolute inset-x-0 bottom-0 translate-y-full border-t border-border bg-white/96 py-3 text-center text-sm font-medium text-primary transition-transform group-hover:translate-y-0 group-focus-within:translate-y-0">{t('Continue editing')}</span>
         </button>
       </CardContent>
-      <CardFooter className="gap-3 border-t border-border p-3">
-        <div className="min-w-0 flex-1">
-          <h3 className="truncate text-sm font-semibold">{entry.title || t('Untitled resume')}</h3>
-          <p className="mt-1 text-xs text-muted-foreground">{formatDateTime(entry.updatedAt, lang, t)}</p>
+      <CardFooter className="flex-col items-stretch gap-2 border-t border-border p-3">
+        <div className="min-w-0">
+          <h3><Button type="button" variant="ghost" size="sm" className="h-auto max-w-full justify-start p-0" disabled={busy} onClick={onRename} aria-label={t('Rename {name}', { name: entry.title || t('Untitled resume') })} title={t('Rename resume')}><span className="truncate">{entry.title || t('Untitled resume')}</span><Pencil data-icon="inline-end" /></Button></h3>
         </div>
-        <div className="flex items-center gap-1">
-          <Button variant="ghost" size="icon-sm" onClick={onHide} aria-label={t('Hide {name}', { name: entry.title || t('Untitled resume') })}>
-            <EyeOff />
-          </Button>
-          <Button variant="destructive" size="icon-sm" onClick={onDelete} aria-label={t('Delete {name}', { name: entry.title || t('Untitled resume') })}>
-            <Trash2 />
-          </Button>
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-xs text-muted-foreground">{formatDateTime(entry.updatedAt, lang, t)}</p>
+          <div className="flex items-center gap-1">
+            <Button variant="ghost" size="icon-sm" disabled={busy} onClick={onDuplicate} aria-label={t('Duplicate {name}', { name: entry.title || t('Untitled resume') })} title={t('Duplicate resume')}><Copy /></Button>
+            <Button variant="ghost" size="icon-sm" onClick={onHide} aria-label={t('Hide {name}', { name: entry.title || t('Untitled resume') })}>
+              <EyeOff />
+            </Button>
+            <Button variant="destructive" size="icon-sm" onClick={onDelete} aria-label={t('Delete {name}', { name: entry.title || t('Untitled resume') })}>
+              <Trash2 />
+            </Button>
+          </div>
         </div>
       </CardFooter>
     </Card>
@@ -146,6 +155,19 @@ export default function Dashboard() {
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState('');
   const [hiddenIds, setHiddenIds] = useState<string[]>([]);
+  const [loadError, setLoadError] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
+  const [importOpen, setImportOpen] = useState(false);
+  const [actionError, setActionError] = useState('');
+  const [creating, setCreating] = useState(false);
+  const creatingRef = useRef(false);
+  const [query, setQuery] = useState('');
+  const [sort, setSort] = useState<ResumeSort>('recent');
+  const [renameTarget, setRenameTarget] = useState<ResumeEntry|null>(null);
+  const [renameTitle, setRenameTitle] = useState('');
+  const [renameError, setRenameError] = useState('');
+  const [renaming, setRenaming] = useState(false);
+  const renamingRef = useRef(false);
 
   useEffect(() => {
     if (authLoading) return;
@@ -155,15 +177,16 @@ export default function Dashboard() {
     }
     let cancelled = false;
     setLoading(true);
+    setLoadError(false);
     listResumes().then((items) => {
       if (!cancelled) setResumes(items);
     }).catch(() => {
-      if (!cancelled) setResumes([]);
+      if (!cancelled) setLoadError(true);
     }).finally(() => {
       if (!cancelled) setLoading(false);
     });
     return () => { cancelled = true; };
-  }, [authLoading, user]);
+  }, [authLoading, user, loadAttempt]);
 
   useEffect(() => { setHiddenIds(readHiddenIds(user)); }, [user]);
 
@@ -186,13 +209,44 @@ export default function Dashboard() {
     );
   }
 
-  const visibleResumes = resumes.filter((entry) => !hiddenIds.includes(entry.id));
+  const visibleResumes = selectDashboardResumes(resumes, { hiddenIds, locale: lang });
+  const matchingResumes = selectDashboardResumes(visibleResumes, { query, sort, locale: lang });
+  const hiddenCount = resumes.length - visibleResumes.length;
 
-  const createBlank = async () => {
-    const settings = DEFAULT_SETTINGS;
-    const entry = await createResume(buildBlankResume(lang), settings);
-    navigate(`/editor/${entry.id}`);
+  const confirmRename = async () => {
+    if (!renameTarget || renamingRef.current) return;
+    const title = renameTitle.trim();
+    if (!title || title.length > 1000) {
+      setRenameError(t('Enter a resume name between 1 and 1000 characters.'));
+      return;
+    }
+    if (title === renameTarget.title) { setRenameTarget(null); return; }
+    renamingRef.current = true; setRenaming(true); setRenameError('');
+    try {
+      await renameResume(renameTarget.id, title);
+      renameDashboardDraft(renameTarget.id, user.username, title);
+      setResumes(current => current.map(entry => entry.id === renameTarget.id ? {
+        ...entry, title, updatedAt: Date.now(), resume: { ...entry.resume, title },
+        settings: { ...entry.settings, titleMode: 'custom', titleKind: 'custom' },
+      } : entry));
+      setRenameTarget(null);
+    } catch { setRenameError(t('Could not rename the resume. Please try again.')); }
+    finally { renamingRef.current = false; setRenaming(false); }
   };
+
+  const createDocument = async (source?: ResumeEntry) => {
+    if (creatingRef.current) return;
+    creatingRef.current = true; setCreating(true); setActionError('');
+    try {
+      const entry = source
+        ? await duplicateResume(source.id, t('{name} (copy)', { name: source.title }))
+        : await createResume(buildBlankResume(lang), DEFAULT_SETTINGS);
+      if (!entry) throw new Error('NOT_FOUND');
+      navigate(`/editor/${entry.id}`);
+    } catch { setActionError(t('Could not create the resume. Please try again.')); }
+    finally { creatingRef.current = false; setCreating(false); }
+  };
+  const createBlank = () => { void createDocument(); };
 
   const confirmHide = () => {
     if (!hideTarget) return;
@@ -217,7 +271,7 @@ export default function Dashboard() {
       const nextHiddenIds = hiddenIds.filter((id) => id !== deleteTarget.id);
       setHiddenIds(nextHiddenIds);
       writeHiddenIds(user, nextHiddenIds);
-      window.sessionStorage.removeItem(`draft_${deleteTarget.id}`);
+      removeDraft(deleteTarget.id, user?.username || '');
       setDeleteTarget(null);
     } catch {
       setDeleteError(t('Could not delete resume. Please try again.'));
@@ -236,13 +290,14 @@ export default function Dashboard() {
             <h1 className="text-4xl font-bold tracking-[-0.045em]">{t('My Resumes')}</h1>
           </div>
           <div className="flex flex-wrap gap-2">
-            {hiddenIds.length ? (
+            {hiddenCount ? (
               <Button variant="outline" onClick={restoreHidden}>
                 <RotateCcw data-icon="inline-start" />
-                {t('Restore hidden resumes ({count})', { count: hiddenIds.length })}
+                {t('Restore hidden resumes ({count})', { count: hiddenCount })}
               </Button>
             ) : null}
-            <Button onClick={createBlank}>
+            <Button variant="outline" disabled={creating} onClick={() => setImportOpen(true)}><Upload data-icon="inline-start" />{t('Import resume')}</Button>
+            <Button onClick={createBlank} disabled={creating}>
               <Plus data-icon="inline-start" />
               {t('Create resume')}
             </Button>
@@ -255,27 +310,66 @@ export default function Dashboard() {
           <span>{openText(lang, 'unlimited')}</span>
         </div>
 
+        {!loadError && resumes.length > 0 ? <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-end">
+          <label className="flex min-w-0 flex-1 flex-col gap-2 text-sm font-medium" htmlFor="resume-search">
+            {t('Search resumes')}
+            <Input id="resume-search" type="search" value={query} placeholder={t('Search by title, name or headline')} onChange={event => setQuery(event.target.value)} />
+          </label>
+          <label className="flex flex-col gap-2 text-sm font-medium" htmlFor="resume-sort">
+            {t('Sort resumes')}
+            <NativeSelect id="resume-sort" value={sort} onChange={event => setSort(event.target.value as ResumeSort)} className="w-full sm:w-44">
+              <NativeSelectOption value="recent">{t('Recently updated')}</NativeSelectOption>
+              <NativeSelectOption value="oldest">{t('Oldest updated')}</NativeSelectOption>
+              <NativeSelectOption value="name">{t('Name (A–Z)')}</NativeSelectOption>
+            </NativeSelect>
+          </label>
+        </div> : null}
+        {!loadError && query.trim() && visibleResumes.length > 0 ? <p role="status" className="mt-4 text-sm text-muted-foreground">{t('{count} of {total} resumes match', { count: matchingResumes.length, total: visibleResumes.length })}</p> : null}
 
-        {visibleResumes.length ? (
+        {actionError && <p role="alert" className="mt-5 text-sm text-destructive">{actionError}</p>}
+        {loadError ? (
+          <div role="alert" className="mt-8 flex flex-col items-start gap-3 rounded-lg border border-border bg-card p-5">
+            <p className="font-medium">{t('Could not load your resumes. Your saved data has not been deleted.')}</p>
+            <Button variant="outline" onClick={() => setLoadAttempt(value => value + 1)}>{t('Retry')}</Button>
+          </div>
+        ) : matchingResumes.length ? (
           <div className="mt-8 grid gap-x-5 gap-y-8 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-            <button
+            {!query.trim() && <button
               type="button"
               className="flex aspect-[210/297] flex-col items-center justify-center gap-3 rounded-md border border-dashed border-border bg-transparent text-muted-foreground transition hover:border-primary/50 hover:text-primary disabled:opacity-50"
               onClick={createBlank}
+              disabled={creating}
 
             >
               <Plus className="size-7" />
               <span className="text-sm font-medium">{t('Create a blank resume')}</span>
-            </button>
-            {visibleResumes.map((entry) => (
+            </button>}
+            {matchingResumes.map((entry) => (
               <ResumeCard
                 key={entry.id}
                 entry={entry}
+                busy={creating}
+                onDuplicate={() => { void createDocument(entry); }}
+                onRename={() => { setRenameTarget(entry); setRenameTitle(entry.title); setRenameError(''); }}
                 onOpen={() => navigate(`/editor/${entry.id}`)}
                 onHide={() => setHideTarget(entry)}
                 onDelete={() => { setDeleteError(''); setDeleteTarget(entry); }}
               />
             ))}
+          </div>
+        ) : visibleResumes.length > 0 ? (
+          <div className="mx-auto flex max-w-lg flex-col items-center gap-4 py-20 text-center">
+            <Search className="size-8 text-muted-foreground" />
+            <h2 className="text-xl font-semibold">{t('No matching resumes')}</h2>
+            <p className="text-sm text-muted-foreground">{t('Try a different title, name or headline.')}</p>
+            <Button variant="outline" onClick={() => setQuery('')}>{t('Clear search')}</Button>
+          </div>
+        ) : hiddenCount > 0 ? (
+          <div className="mx-auto flex max-w-lg flex-col items-center gap-4 py-20 text-center">
+            <EyeOff className="size-8 text-muted-foreground" />
+            <h2 className="text-xl font-semibold">{t('All your resumes are hidden')}</h2>
+            <p className="text-sm text-muted-foreground">{t('Your saved resumes are still here. Restore them to see them in this list.')}</p>
+            <Button variant="outline" onClick={restoreHidden}><RotateCcw data-icon="inline-start" />{t('Restore hidden resumes ({count})', { count: hiddenCount })}</Button>
           </div>
         ) : (
           <div className="mx-auto flex max-w-lg flex-col items-center py-24 text-center">
@@ -283,13 +377,35 @@ export default function Dashboard() {
             <h2 className="mt-5 text-xl font-semibold">{t('Create your first resume')}</h2>
             <div className="mt-6 flex gap-3">
               <Button onClick={() => navigate('/templates')}><LayoutTemplate data-icon="inline-start" />{t('Browse templates')}</Button>
-              <Button variant="outline" onClick={createBlank}><Plus data-icon="inline-start" />{t('Blank resume')}</Button>
+              <Button variant="outline" disabled={creating} onClick={createBlank}><Plus data-icon="inline-start" />{t('Blank resume')}</Button>
             </div>
           </div>
         )}
       </section>
 
       <SiteFooter />
+
+      {importOpen && <ImportResumeDialog onClose={() => setImportOpen(false)} onImported={id => { setImportOpen(false); navigate(`/editor/${id}`); }} />}
+
+      <Dialog open={Boolean(renameTarget)} onOpenChange={open => { if (!open && !renamingRef.current) setRenameTarget(null); }}>
+        <DialogContent closeLabel={t('Close')} showCloseButton={!renaming}>
+          <DialogHeader>
+            <DialogTitle>{t('Rename resume')}</DialogTitle>
+            <DialogDescription>{t('Give this resume a name so you can find it easily.')}</DialogDescription>
+          </DialogHeader>
+          <form className="flex flex-col gap-4" onSubmit={event => { event.preventDefault(); void confirmRename(); }}>
+            <label className="flex flex-col gap-2 text-sm font-medium" htmlFor="rename-title">
+              {t('Resume name')}
+              <Input id="rename-title" value={renameTitle} maxLength={1000} disabled={renaming} aria-invalid={Boolean(renameError)} aria-describedby={renameError ? 'rename-error' : undefined} onChange={event => { setRenameTitle(event.target.value); setRenameError(''); }} />
+            </label>
+            {renameError ? <p id="rename-error" role="alert" className="text-sm text-destructive">{renameError}</p> : null}
+            <DialogFooter>
+              <Button type="button" variant="outline" disabled={renaming} onClick={() => setRenameTarget(null)}>{t('Cancel')}</Button>
+              <Button type="submit" disabled={renaming || !renameTitle.trim()}>{renaming ? <Loader2 data-icon="inline-start" className="animate-spin" /> : null}{t(renaming ? 'Saving…' : 'Save name')}</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={Boolean(hideTarget)} onOpenChange={(open) => { if (!open) setHideTarget(null); }}>
         <DialogContent closeLabel={t('Close')}>

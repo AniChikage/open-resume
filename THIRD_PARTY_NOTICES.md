@@ -13,7 +13,7 @@ The bundled Geist font is copyright 2024 The Geist Project Authors and uses the
 SIL Open Font License 1.1, included at `public/licenses/Geist-OFL.txt`.
 Upstream: https://github.com/vercel/geist-font.
 
-React, Vite, Lucide, Tailwind CSS, shadcn, Base UI, html2canvas, pdf-lib, jsPDF and
+React, Vite, Lucide, Tailwind CSS, shadcn, Base UI, html2canvas, pdf-lib, PDF.js, fflate and
 other dependencies retain their own licenses and notices in their installed
 package directories. Exact dependency versions are pinned in `package-lock.json`.
 The application MIT license does not replace third-party licenses.

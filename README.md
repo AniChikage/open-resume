@@ -22,6 +22,11 @@
 - **156 templates, all included** — browse, filter, preview, and switch layouts without unlocking a plan.
 - **An editor that stays out of your way** — live A4 preview, autosave, undo/redo, photos, section ordering, fonts, and accent colors.
 - **Unlimited resumes and free exports** — PDF, PNG, and JSON backups, without watermarks.
+- **Find and organize your resumes** — search by title, name, or target role; sort by update time or title; rename and duplicate from your workspace.
+- **Local resume checks** — review content, contact details, and date ranges, then jump to the relevant editor fields. Runs in the browser without an API key.
+- **Version history** — automatic checkpoints, named snapshots of your current editor, content and appearance comparisons, and restoration as a new copy.
+- **Import an existing resume** — read text PDFs, DOCX, TXT, Markdown, or pasted text on your device, review the result, and import a new resume. JSON backups restore content and appearance.
+- **Local job matching** — compare a posting with visible resume content, add your own keywords, and jump to matching evidence. No API key needed.
 - **Seven interface languages** — English, Simplified Chinese, Traditional Chinese, Japanese, Korean, French, and Russian.
 - **Your own workspace** — local SQLite storage, server-side sessions, bundled fonts, and no analytics or telemetry.
 - **Optional AI tailoring** — bring your own API key to adapt a copy to a job description. No application-level daily quota or cooldown; provider fees and limits still apply.
@@ -80,9 +85,15 @@ Custom passwords are not displayed in the interface. Changing credentials invali
 
 Node mode stores data in `.data/open-resume.sqlite` by default; set `DATA_DIR` to use another directory. To back up, stop the app and copy the entire data directory, including any `-wal` and `-shm` files. In Docker, back up the named volume after stopping the service. Keep a backup before deleting data.
 
+Version history is stored in the same SQLite database. Each resume keeps its initial version, 20 recent automatic versions, and 30 recent manual snapshots; automatic changes within one minute are grouped. Named snapshots can include current unsaved edits. Compare content and appearance before restoring a version as a new resume; the source stays intact.
+
+Import reads files locally and asks you to review detected fields and editable source text before saving a new resume to your workspace. Original layouts, photos, and dates may need adjustment. Scanned PDFs and images have no built-in OCR; extract their text first or paste it manually.
+
+Job matching keeps the posting and selected keywords in this browser for the current resume. It measures keyword coverage, not an ATS score or a hiring prediction. You can pass the posting into optional AI tailoring, which asks for consent before sending content to your configured provider.
+
 Use `PORT` to change the port. The server and Compose port bind to loopback by default. Set `HOST=0.0.0.0` for LAN access; for a public deployment, use private credentials, an HTTPS reverse proxy, and `SECURE_COOKIE=true`.
 
-Share links encode the resume in the URL fragment without third-party storage. Recipients must be able to reach your deployment; uploaded avatars are not included automatically.
+Share links encode the resume in the URL fragment without third-party storage. Recipients must be able to reach your deployment; uploaded avatars are not included automatically. Share snapshots support up to 1 MiB of uncompressed content; export a PDF or JSON backup for larger resumes.
 
 ## Optional AI tailoring
 

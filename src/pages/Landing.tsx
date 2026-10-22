@@ -7,7 +7,7 @@ import { useAuth } from '../lib/auth.tsx';
 import { openText } from '../lib/open-copy.ts';
 import { navigate } from '../lib/router.ts';
 import { useTheme } from '../lib/theme.tsx';
-import { ResumePreview } from './Editor.tsx';
+import { ResumePreview } from '../components/ResumePreview.tsx';
 
 export default function Landing() {
   const { lang, t } = useTheme();

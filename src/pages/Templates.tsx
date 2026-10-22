@@ -32,7 +32,7 @@ import {
 buildResumeFromTemplate,DEFAULT_SETTINGS,localizeTemplateLanguage,localizeTemplateTag,RESUME_TEMPLATES,
 } from '../data.ts';
 import { createResume,listResumes } from '../lib/storage.ts';
-import { ResumePreview } from './Editor.tsx';
+import { ResumePreview } from '../components/ResumePreview.tsx';
 
 const A4_PREVIEW_WIDTH = 794;
 const A4_PREVIEW_HEIGHT = 1123;

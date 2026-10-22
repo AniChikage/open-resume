@@ -22,8 +22,8 @@ export function isResume(value: unknown): value is Resume {
 }
 export function isResumeSettings(value: unknown): value is ResumeSettings {
   return isRecord(value) && ['template','accent','fontFamily'].every(key => typeof value[key] === 'string')
-    && typeof value.fontSize === 'number' && Number.isFinite(value.fontSize)
-    && typeof value.lineHeight === 'number' && Number.isFinite(value.lineHeight)
+    && typeof value.fontSize === 'number' && Number.isFinite(value.fontSize) && value.fontSize >= 8 && value.fontSize <= 32
+    && typeof value.lineHeight === 'number' && Number.isFinite(value.lineHeight) && value.lineHeight >= 1 && value.lineHeight <= 3
     && typeof value.compact === 'boolean'
     && (value.titleMode === undefined || value.titleMode === 'auto' || value.titleMode === 'custom')
     && (value.titleKind === undefined || value.titleKind === 'blank' || value.titleKind === 'template' || value.titleKind === 'custom');

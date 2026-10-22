@@ -5,8 +5,11 @@ import path from 'node:path';
 import type { SQLOutputValue } from 'node:sqlite';
 import { DatabaseSync } from 'node:sqlite';
 import { Readable } from 'node:stream';
+import { isDeepStrictEqual } from 'node:util';
 import type { Connect } from 'vite';
-import { errorMessage,isEditorDocument,isRecord } from '../src/lib/validation.ts';
+import { errorMessage,isEditorDocument,isRecord,isResume,isResumeSettings } from '../src/lib/validation.ts';
+import { VERSION_AUTO_LIMIT,VERSION_AUTOSAVE_WINDOW_MS,VERSION_MANUAL_LIMIT } from '../src/lib/version-types.ts';
+import type { ResumeVersion,ResumeVersionKind,ResumeVersionSummary } from '../src/lib/version-types.ts';
 import { handleTailoring } from '../src/tailoring.ts';
 import type { EditorDocument,StoredResume } from '../src/types.ts';
 export interface AppOptions {dataDir?:string;distDir?:string;env?:NodeJS.ProcessEnv;fetchImpl?:typeof fetch;devMiddleware?:Connect.Server}
@@ -16,7 +19,7 @@ export const DEMO_PASSWORD = 'admin';
 const COOKIE = 'openresume_session';
 const WEEK = 7 * 24 * 60 * 60;
 const digest = (value: string) => createHash('sha256').update(value).digest('hex');
-const mime: Record<string,string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.ico': 'image/x-icon', '.woff': 'font/woff', '.woff2': 'font/woff2', '.ttf': 'font/ttf', '.otf': 'font/otf' };
+const mime: Record<string,string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.ico': 'image/x-icon', '.woff': 'font/woff', '.woff2': 'font/woff2', '.ttf': 'font/ttf', '.otf': 'font/otf' };
 
 function json(res: http.ServerResponse, status: number, value: unknown, headers: http.OutgoingHttpHeaders = {}) {
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', ...headers });
@@ -50,6 +53,9 @@ export function createApp({ dataDir = path.resolve('.data'), distDir = path.reso
   const db = new DatabaseSync(path.join(dataDir, 'open-resume.sqlite'));
   db.exec(`PRAGMA journal_mode = WAL;
     CREATE TABLE IF NOT EXISTS resumes (id TEXT PRIMARY KEY, title TEXT NOT NULL, resume TEXT NOT NULL, settings TEXT NOT NULL, updated_at INTEGER NOT NULL);
+    CREATE TABLE IF NOT EXISTS resume_versions (id TEXT PRIMARY KEY, resume_id TEXT NOT NULL, title TEXT NOT NULL, resume TEXT NOT NULL, settings TEXT NOT NULL, label TEXT NOT NULL, kind TEXT NOT NULL CHECK(kind IN ('initial', 'auto', 'manual')), created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+    CREATE INDEX IF NOT EXISTS resume_versions_by_resume ON resume_versions (resume_id, updated_at DESC);
+    CREATE UNIQUE INDEX IF NOT EXISTS resume_versions_initial ON resume_versions (resume_id) WHERE kind = 'initial';
     CREATE TABLE IF NOT EXISTS sessions (token_hash TEXT PRIMARY KEY, expires_at INTEGER NOT NULL, credential_hash TEXT NOT NULL);`);
   // A credential change invalidates sessions from the previous configuration.
   const credentialHash = digest(username + passwordHash.toString('hex'));
@@ -59,6 +65,41 @@ export function createApp({ dataDir = path.resolve('.data'), distDir = path.reso
     if (!isEditorDocument(value)) throw new Error('INVALID_STORED_DOCUMENT');
     return { id:row.id, title:row.title, updated_at:row.updated_at, ...value };
   };
+  const toVersionSummary = (row: Record<string,SQLOutputValue>): ResumeVersionSummary => {
+    if (typeof row.id !== 'string' || typeof row.resume_id !== 'string' || typeof row.title !== 'string' || typeof row.label !== 'string' || !['initial', 'auto', 'manual'].includes(String(row.kind)) || typeof row.created_at !== 'number' || typeof row.updated_at !== 'number') throw new Error('INVALID_STORED_VERSION');
+    return { id: row.id, resumeId: row.resume_id, title: row.title, label: row.label, kind: row.kind as ResumeVersionKind, createdAt: row.created_at, updatedAt: row.updated_at };
+  };
+  const toVersion = (row: Record<string,SQLOutputValue>): ResumeVersion => {
+    const { resume, settings } = toDocument(row);
+    return { ...toVersionSummary(row), resume, settings };
+  };
+  function transaction<T>(action: () => T): T {
+    db.exec('BEGIN IMMEDIATE');
+    try { const result = action(); db.exec('COMMIT'); return result; }
+    catch (error) { db.exec('ROLLBACK'); throw error; }
+  }
+  function insertVersion(resumeId: string, document: EditorDocument & { title: string }, kind: ResumeVersionKind, label: string, now: number) {
+    const id = randomUUID();
+    db.prepare('INSERT INTO resume_versions (id, resume_id, title, resume, settings, label, kind, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(id, resumeId, document.title, JSON.stringify(document.resume), JSON.stringify(document.settings), label, kind, now, now);
+    return id;
+  }
+  function ensureInitialVersion(document: StoredResume) {
+    if (!db.prepare('SELECT 1 FROM resume_versions WHERE resume_id = ? AND kind = ?').get(document.id, 'initial')) insertVersion(document.id, document, 'initial', '', document.updated_at);
+  }
+  function trimVersions(resumeId: string, kind: 'auto' | 'manual') {
+    const limit = kind === 'auto' ? VERSION_AUTO_LIMIT : VERSION_MANUAL_LIMIT;
+    db.prepare('DELETE FROM resume_versions WHERE resume_id = ? AND kind = ? AND id NOT IN (SELECT id FROM resume_versions WHERE resume_id = ? AND kind = ? ORDER BY created_at DESC, rowid DESC LIMIT ?)').run(resumeId, kind, resumeId, kind, limit);
+  }
+  function saveAutomaticVersion(resumeId: string, document: EditorDocument & { title: string }, now: number) {
+    const latest = db.prepare('SELECT id, kind, created_at FROM resume_versions WHERE resume_id = ? ORDER BY updated_at DESC, rowid DESC LIMIT 1').get(resumeId);
+    // Fixed windows preserve a checkpoint each minute even during uninterrupted typing.
+    if (latest?.kind === 'auto' && typeof latest.created_at === 'number' && now - latest.created_at < VERSION_AUTOSAVE_WINDOW_MS) {
+      db.prepare('UPDATE resume_versions SET title = ?, resume = ?, settings = ?, updated_at = ? WHERE id = ?').run(document.title, JSON.stringify(document.resume), JSON.stringify(document.settings), now, latest.id!);
+    } else {
+      insertVersion(resumeId, document, 'auto', '', now);
+      trimVersions(resumeId, 'auto');
+    }
+  }
   const cookieValue = (token: string, age = WEEK) => `${COOKIE}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${age}${env.SECURE_COOKIE === 'true' ? '; Secure' : ''}`;
   function token(req: http.IncomingMessage) { return (req.headers.cookie || '').match(/(?:^|;\s*)openresume_session=([a-f0-9]{64})(?:;|$)/)?.[1]; }
   function authenticated(req: http.IncomingMessage) {
@@ -112,9 +153,61 @@ export function createApp({ dataDir = path.resolve('.data'), distDir = path.reso
         if (pathname === '/api/resumes' && method === 'POST') {
           const input = await body(req);
           if (!validDocument(input)) return json(res, 400, { error: 'INVALID_RESUME' });
+          input.resume.title = input.title;
           const id = randomUUID(), updated_at = Date.now();
-          db.prepare('INSERT INTO resumes VALUES (?, ?, ?, ?, ?)').run(id, input.title, JSON.stringify(input.resume), JSON.stringify(input.settings), updated_at);
+          transaction(() => {
+            db.prepare('INSERT INTO resumes VALUES (?, ?, ?, ?, ?)').run(id, input.title, JSON.stringify(input.resume), JSON.stringify(input.settings), updated_at);
+            insertVersion(id, input, 'initial', '', updated_at);
+          });
           return json(res, 201, { id, updated_at });
+        }
+        const versionMatch = pathname.match(/^\/api\/resumes\/([a-f0-9-]{36})\/versions(?:\/([a-f0-9-]{36})(\/restore)?)?$/);
+        if (versionMatch) {
+          const [, resumeId, versionId, restoring] = versionMatch;
+          const row = db.prepare('SELECT * FROM resumes WHERE id = ?').get(resumeId);
+          if (!row) return json(res, 404, { error: 'NOT_FOUND' });
+          if (!versionId && method === 'GET') {
+            const versions = transaction(() => {
+              const latest = db.prepare('SELECT * FROM resumes WHERE id = ?').get(resumeId);
+              if (!latest) return null;
+              ensureInitialVersion(toDocument(latest));
+              return db.prepare('SELECT id, resume_id, title, label, kind, created_at, updated_at FROM resume_versions WHERE resume_id = ? ORDER BY updated_at DESC, rowid DESC').all(resumeId).map(toVersionSummary);
+            });
+            return versions ? json(res, 200, { versions }) : json(res, 404, { error: 'NOT_FOUND' });
+          }
+          if (!versionId && method === 'POST') {
+            const input = await body(req);
+            const label = input.label === undefined ? '' : input.label;
+            const document = { title: input.title ?? (isRecord(input.resume) ? input.resume.title : undefined), resume: input.resume, settings: input.settings };
+            if (!validDocument(document) || typeof label !== 'string' || label.trim().length > 120) return json(res, 400, { error: 'INVALID_VERSION' });
+            document.resume.title = document.title;
+            const result = transaction(() => {
+              const latest = db.prepare('SELECT * FROM resumes WHERE id = ?').get(resumeId);
+              if (!latest) return null;
+              ensureInitialVersion(toDocument(latest));
+              const id = insertVersion(resumeId, document, 'manual', label.trim(), Date.now());
+              trimVersions(resumeId, 'manual');
+              return toVersion(db.prepare('SELECT * FROM resume_versions WHERE id = ?').get(id)!);
+            });
+            return result ? json(res, 201, result) : json(res, 404, { error: 'NOT_FOUND' });
+          }
+          if (versionId && !restoring && method === 'GET') {
+            const version = db.prepare('SELECT * FROM resume_versions WHERE id = ? AND resume_id = ?').get(versionId, resumeId);
+            return version ? json(res, 200, toVersion(version)) : json(res, 404, { error: 'NOT_FOUND' });
+          }
+          if (versionId && restoring && method === 'POST') {
+            const result = transaction(() => {
+              const version = db.prepare('SELECT * FROM resume_versions WHERE id = ? AND resume_id = ?').get(versionId, resumeId);
+              if (!version || !db.prepare('SELECT 1 FROM resumes WHERE id = ?').get(resumeId)) return null;
+              const document = toVersion(version);
+              const id = randomUUID(), updated_at = Date.now();
+              db.prepare('INSERT INTO resumes VALUES (?, ?, ?, ?, ?)').run(id, document.title, JSON.stringify(document.resume), JSON.stringify(document.settings), updated_at);
+              insertVersion(id, document, 'initial', '', updated_at);
+              return { id, updated_at };
+            });
+            return result ? json(res, 201, result) : json(res, 404, { error: 'NOT_FOUND' });
+          }
+          return json(res, 405, { error: 'METHOD_NOT_ALLOWED' }, { Allow: restoring ? 'POST' : versionId ? 'GET' : 'GET, POST' });
         }
         const match = pathname.match(/^\/api\/resumes\/([a-f0-9-]{36})$/);
         if (match) {
@@ -122,19 +215,39 @@ export function createApp({ dataDir = path.resolve('.data'), distDir = path.reso
           if (!row) return json(res, 404, { error: 'NOT_FOUND' });
           if (method === 'GET') return json(res, 200, toDocument(row));
           if (method === 'DELETE') {
-            db.prepare('DELETE FROM resumes WHERE id = ?').run(match[1]);
+            transaction(() => {
+              db.prepare('DELETE FROM resume_versions WHERE resume_id = ?').run(match[1]);
+              db.prepare('DELETE FROM resumes WHERE id = ?').run(match[1]);
+            });
             return json(res, 200, { ok: true });
           }
           if (method === 'PUT') {
             const input = await body(req);
-            const previous = toDocument(row);
-            const next = { title: input?.title ?? previous.title, resume: input?.resume ?? previous.resume, settings: input?.settings ?? previous.settings };
-            if (!validDocument(next)) return json(res, 400, { error: 'INVALID_RESUME' });
-            // Renaming also updates the document title, so reload/export stays consistent.
-            next.resume.title = next.title;
-            const updated_at = Date.now();
-            db.prepare('UPDATE resumes SET title = ?, resume = ?, settings = ?, updated_at = ? WHERE id = ?').run(next.title, JSON.stringify(next.resume), JSON.stringify(next.settings), updated_at, match[1]);
-            return json(res, 200, { ok: true, updated_at });
+            if ((input.title != null && (typeof input.title !== 'string' || input.title.length > 1000)) || (input.resume != null && !isResume(input.resume)) || (input.settings != null && !isResumeSettings(input.settings))) return json(res, 400, { error: 'INVALID_RESUME' });
+            // A save or deletion may finish while this request is still uploading.
+            // Merge partial updates with the latest document, not the earlier read.
+            const result = transaction(() => {
+              const currentRow = db.prepare('SELECT * FROM resumes WHERE id = ?').get(match[1]);
+              if (!currentRow) return null;
+              const previous = toDocument(currentRow);
+              const next = { title: input.title ?? previous.title, resume: input.resume ?? previous.resume, settings: input.settings ?? previous.settings };
+              if (!validDocument(next)) return { invalid: true } as const;
+              ensureInitialVersion(previous);
+              // Renaming also updates the document title, so reload/export stays consistent.
+              next.resume.title = next.title;
+              if (input.title !== undefined && input.resume === undefined && input.settings === undefined) {
+                next.settings = { ...next.settings, titleMode: 'custom', titleKind: 'custom' };
+              }
+              const unchanged = next.title === previous.title && isDeepStrictEqual(next.resume, previous.resume) && isDeepStrictEqual(next.settings, previous.settings);
+              if (unchanged) return { updated_at: previous.updated_at };
+              const updated_at = Date.now();
+              db.prepare('UPDATE resumes SET title = ?, resume = ?, settings = ?, updated_at = ? WHERE id = ?').run(next.title, JSON.stringify(next.resume), JSON.stringify(next.settings), updated_at, match[1]);
+              saveAutomaticVersion(match[1], next, updated_at);
+              return { updated_at };
+            });
+            if (!result) return json(res, 404, { error: 'NOT_FOUND' });
+            if ('invalid' in result) return json(res, 400, { error: 'INVALID_RESUME' });
+            return json(res, 200, { ok: true, updated_at: result.updated_at });
           }
           return json(res, 405, { error: 'METHOD_NOT_ALLOWED' }, { Allow: 'GET, PUT, DELETE' });
         }

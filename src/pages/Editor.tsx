@@ -1,7 +1,7 @@
 import {
 BadgeCheck,Bold,BriefcaseBusiness,Calendar,CheckCircle2,ChevronLeft,ChevronRight,
 CircleAlert,
-Download,Eraser,Eye,FileJson,FileText,Gauge,GraduationCap,Home,
+Download,Eraser,Eye,FileJson,FileText,Gauge,GraduationCap,History,Home,
 ImageDown,Italic,Layers3,LayoutTemplate,Link2,
 List,ListOrdered,
 Loader2,
@@ -9,34 +9,43 @@ Maximize2,MoveDown,MoveUp,Palette,PencilLine,Plus,
 PlusCircle,Redo2,Save,Share2,Sparkles,Trash2,Trophy,
 Underline,
 Undo2,
-UsersRound,X,ZoomIn,ZoomOut
+UsersRound,Wrench,X,ZoomIn,ZoomOut
 } from 'lucide-react';
 import type * as React from 'react';
-import { useEffect,useLayoutEffect,useRef,useState } from 'react';
+import { lazy,Suspense,useEffect,useLayoutEffect,useMemo,useRef,useState,useSyncExternalStore } from 'react';
+import { ResumePreview } from '../components/ResumePreview.tsx';
 import { EditorTemplatePicker } from '../components/EditorTemplatePicker.tsx';
 import { LanguageMenu } from '../components/SiteChrome.tsx';
 import TailorResumeDialog from '../components/TailorResumeDialog.tsx';
 import { Badge } from '../components/ui/badge.tsx';
 import { Button } from '../components/ui/button.tsx';
 import { Skeleton } from '../components/ui/skeleton.tsx';
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '../components/ui/sheet.tsx';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuTrigger } from '../components/ui/dropdown-menu.tsx';
 import {
 createSectionItem,DEFAULT_SETTINGS,FONT_OPTIONS,getSectionCopy,inferSystemResumeTitleKind,
 localizeResumeSections,localizeResumeTitle,
 resolveResumeAvatar,
-RESUME_TEMPLATES,SECTION_TEMPLATES,TEMPLATE_ACCENTS,
-TEMPLATE_VARIANTS
+RESUME_TEMPLATES,SECTION_TEMPLATES
 } from '../data.ts';
-import { runChecks } from '../lib/ai-check.ts';
+import { getEducationBody, getExperienceBody, getItemPeriodLabel, parsePeriodText, sanitizeRichText } from '../lib/resume-content.ts';
+import { useAuth } from '../lib/auth.tsx';
+import { createAutosave } from '../lib/autosave.ts';
+import { readDraft, writeDraft, removeDraft } from '../lib/drafts.ts';
+import { hasResumeItemContent, runChecks } from '../lib/ai-check.ts';
 import { CHINA_MAJOR_OPTIONS,CHINA_SCHOOL_OPTIONS } from '../lib/education-options.ts';
 import { A4_RATIO,getSmartPageCuts } from '../lib/pagination.ts';
 import { navigate } from '../lib/router.ts';
-import { generateShareUrl } from '../lib/share.ts';
+import { ShareResumeDialog } from '../components/ShareResumeDialog.tsx';
 import { getResume,saveResume } from '../lib/storage.ts';
 import { useTheme } from '../lib/theme.tsx';
 import { useEditorHistory } from '../lib/use-editor-history.ts';
 import { cn } from '../lib/utils.ts';
 import { errorMessage,isEditorDocument } from '../lib/validation.ts';
 import type { EditorDocument,Resume,ResumeItem as ResumeItemData,ResumeProfile,ResumeSection as ResumeSectionData,ResumeSettings,SectionType,Setter,Translate } from '../types.ts';
+
+const VersionHistoryDialog = lazy(() => import('../components/VersionHistoryDialog.tsx'));
+const JobMatchPanel = lazy(() => import('../components/JobMatchPanel.tsx'));
 
 const iconMap: Record<string, import("lucide-react").LucideIcon> = {
   BadgeCheck, BriefcaseBusiness, FileText, GraduationCap,
@@ -115,99 +124,6 @@ function normalizeSettingsShape(settings: Partial<ResumeSettings> | null) {
   return next;
 }
 
-const escapeHtml = (v: unknown) =>
-  String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] || c));
-
-const canonicalRichTags: Record<string,string> = { B: 'strong', STRONG: 'strong', I: 'em', EM: 'em', U: 'u' };
-const canonicalListTags: Record<string,string> = { UL: 'ul', OL: 'ol', LI: 'li' };
-
-function sanitizeRichText(value: unknown) {
-  const raw = String(value ?? '');
-  if (!raw) return '';
-  if (typeof document === 'undefined') return escapeHtml(raw);
-  const tpl = document.createElement('template');
-  tpl.innerHTML = raw;
-  const clean = (node: Node): string => {
-    if (node.nodeType === 3) return escapeHtml(node.textContent ?? '');
-    if (!(node instanceof Element)) return '';
-    const tag = node.tagName;
-    if (tag === 'BR') return '<br>';
-    const children = Array.from(node.childNodes).map(clean).join('');
-    if (tag === 'A') {
-      const href = node.getAttribute('href') || '';
-      if (href && /^https?:\/\//.test(href)) return `<a href="${escapeHtml(href)}" target="_blank" rel="noopener">${children}</a>`;
-      return children;
-    }
-    const ct = canonicalRichTags[tag];
-    if (ct) return `<${ct}>${children}</${ct}>`;
-    const lt = canonicalListTags[tag];
-    if (lt) return `<${lt}>${children}</${lt}>`;
-    if (tag === 'DIV' || tag === 'P') return `${children}<br>`;
-    return children;
-  };
-  return Array.from(tpl.content.childNodes).map(clean).join('')
-    .replace(/(<br>\s*){2,}/g, '<br>').replace(/^(<br>\s*)+|(\s*<br>)+$/g, '').trim();
-}
-
-function getRichTextText(value: unknown) {
-  const s = sanitizeRichText(value);
-  if (typeof document === 'undefined') return s.replace(/<[^>]+>/g, '');
-  const tpl = document.createElement('template');
-  tpl.innerHTML = s;
-  return tpl.content.textContent ?? '';
-}
-
-function isRichTextEmpty(value: unknown) {
-  return getRichTextText(value).replace(/\u00a0/g, ' ').trim().length === 0;
-}
-
-function richLinesToHtml(lines: string[] = []) {
-  return lines.map(sanitizeRichText).filter((line) => !isRichTextEmpty(line)).join('<br>');
-}
-
-function getExperienceBody(item: ResumeItemData) {
-  const body = sanitizeRichText(item.body);
-  if (!isRichTextEmpty(body)) return body;
-  return richLinesToHtml(item.bullets ?? []);
-}
-
-function getEducationBody(item: ResumeItemData) {
-  const body = sanitizeRichText(item.body);
-  if (!isRichTextEmpty(body)) return body;
-  return richLinesToHtml(item.details ?? []);
-}
-
-function formatPeriod(startDate: string | undefined, endDate: string | undefined, current: boolean | undefined, t: Translate = (message) => message) {
-  if (!startDate && !endDate && !current) return '';
-  const fmt = (d: string | undefined) => d ? d.replace('-', '.') : '';
-  const s = fmt(startDate);
-  const e = current ? t('Present') : fmt(endDate);
-  if (s && e) return `${s} – ${e}`;
-  return s || e;
-}
-
-function parsePeriodText(period: string | undefined) {
-  const raw = String(period ?? '').trim();
-  if (!raw) return { startDate: '', endDate: '', current: false };
-  const matches = [...raw.matchAll(/(\d{4})(?:[.\-\/年]\s*(\d{1,2}))?/g)];
-  if (!matches.length) return { startDate: '', endDate: '', current: false };
-  const toMonthValue = (match: RegExpMatchArray | undefined, side: 'start'|'end') => {
-    const year = match?.[1];
-    if (!year) return '';
-    const month = match?.[2] ? String(Number(match[2])).padStart(2, '0') : (side === 'start' ? '01' : '12');
-    return `${year}-${month}`;
-  };
-  const current = /至今|现在|目前/.test(raw);
-  const startDate = toMonthValue(matches[0], 'start');
-  const endDate = current ? '' : toMonthValue(matches[1], 'end');
-  return { startDate, endDate, current };
-}
-
-function getItemPeriodLabel(item: ResumeItemData, t: Translate = message => message) {
-  if (item.startDate || item.endDate || item.current) return formatPeriod(item.startDate, item.endDate, item.current, t);
-  return item.period || '';
-}
-
 function normalizeResumeShape(input: Resume) {
   const next = clone(input);
   next.profile = next.profile ?? {};
@@ -254,47 +170,12 @@ function normalizeItemShape(type: SectionType, item: ResumeItemData) {
   return next;
 }
 
-function getAgeLabel(birthday: string | undefined, t: Translate = (message, values) => `${values?.age} years old`) {
-  const text = String(birthday ?? '').trim();
-  if (!text) return '';
-  const match = text.match(/(\d{4})(?:\D+(\d{1,2}))?(?:\D+(\d{1,2}))?/);
-  if (!match) return '';
-  const year = Number(match[1]);
-  const month = match[2] ? Number(match[2]) - 1 : null;
-  const day = match[3] ? Number(match[3]) : 1;
-  const now = new Date();
-  let age = now.getFullYear() - year;
-  if (month !== null && (now.getMonth() < month || (now.getMonth() === month && now.getDate() < day))) age -= 1;
-  if (!Number.isFinite(age) || age < 0 || age > 100) return '';
-  return t('{age} years old', { age });
-}
-
-function getProfileInfoItems(profile: ResumeProfile, t: Translate) {
-  const age = getAgeLabel(profile.birthday, t);
-  return [
-    profile.phone && `${t('Phone')}: ${profile.phone}`,
-    profile.email && `${t('Email')}: ${profile.email}`,
-    profile.city && `${t('City')}: ${profile.city}`,
-    age && `${t('Age')}: ${age}`,
-    profile.status && `${t('Status')}: ${profile.status}`,
-    profile.website && `${t('Website')}: ${profile.website}`
-  ].filter(Boolean);
-}
-
 function getResumeStats(resume: Resume) {
   const profileDone = PROFILE_REQUIRED_FIELDS.filter((field) => String(resume.profile?.[field] || '').trim()).length;
   const visibleSections = resume.sections.filter((section) => section.visible);
   const itemCount = visibleSections.reduce((count, section) => count + section.items.length, 0);
-  const filledItems = visibleSections.reduce((count, section) => {
-    const kind = SECTION_TEMPLATES[section.type]?.kind ?? 'experience';
-    return count + section.items.filter((item) => {
-      if (kind === 'text') return !isRichTextEmpty(item.body);
-      if (kind === 'education') return [item.school, item.major, item.degree, getItemPeriodLabel(item), item.location].some(Boolean) || !isRichTextEmpty(getEducationBody(item));
-      if (kind === 'chips') return (item.values ?? []).length > 0;
-      if (kind === 'simpleList') return [item.title, item.meta, item.description].some(Boolean);
-      return [item.org, item.role, getItemPeriodLabel(item), item.location, item.body, ...(item.bullets ?? [])].some((value) => !isRichTextEmpty(value));
-    }).length;
-  }, 0);
+  const filledItems = visibleSections.reduce((count, section) =>
+    count + section.items.filter(item => hasResumeItemContent(section.type, item)).length, 0);
   const progress = Math.min(100, Math.round((profileDone / PROFILE_REQUIRED_FIELDS.length) * 45 + Math.min(filledItems, 6) / 6 * 40 + Math.min(visibleSections.length, 4) / 4 * 15));
   return { profileDone, visibleSections, itemCount, filledItems, progress };
 }
@@ -419,41 +300,59 @@ export default function Editor({ resumeId }: {resumeId:string}) {
   const [exportFeedback, setExportFeedback] = useState<{type:'error'|'success';message:string;detail:string}|null>(null);
   const [activeItemId, setActiveItemId] = useState<string|null>(null);
   const [savedAt, setSavedAt] = useState('Just now');
-  const [shareUrl, setShareUrl] = useState('');
-  const [checkResult, setCheckResult] = useState<ReturnType<typeof runChecks>|null>(null);
+  const [sharing, setSharing] = useState(false);
+  const [checkOpen, setCheckOpen] = useState(false);
+  const [versionsOpen, setVersionsOpen] = useState(false);
+  const [jobMatchOpen, setJobMatchOpen] = useState(false);
+  const [tailorJobDescription, setTailorJobDescription] = useState('');
   const [tailorSnapshot, setTailorSnapshot] = useState<EditorDocument|null>(null);
   const [loadError, setLoadError] = useState(false);
   const [loadAttempt, setLoadAttempt] = useState(0);
   const paperRef = useRef<HTMLElement | null>(null);
   const exportMenuRef = useRef<HTMLDivElement | null>(null);
   const previousLangRef = useRef<string | null>(null);
+  const loadedRef = useRef(false);
+  const { user } = useAuth();
+  const username = user?.username || '';
+  const autosave = useMemo(() => createAutosave<EditorDocument>({
+    save: (document, keepalive) => saveResume(resumeId, document.resume, document.settings, { keepalive }),
+    writeDraft: document => writeDraft(resumeId, username, document),
+    clearDraft: document => removeDraft(resumeId, username, document),
+  }), [resumeId, username]);
+  const { dirty, saving, error: saveFailure, draftAvailable } = useSyncExternalStore(autosave.subscribe, autosave.getSnapshot);
+  const saveError = !saveFailure ? '' : errorMessage(saveFailure) === 'UNAUTHORIZED'
+    ? t('Your session expired. Sign in again to save.')
+    : t(draftAvailable ? 'Save failed. Your changes are cached locally.' : 'Save failed and browser storage is unavailable. Keep this tab open and try again.');
+
+  useEffect(() => {
+    const unsubscribe = history.subscribe(() => {
+      const document = history.getSnapshot().present;
+      if (loadedRef.current && document.resume) autosave.update({ resume: document.resume, settings: document.settings });
+    });
+    return () => { unsubscribe(); void autosave.flush(); };
+  }, [history, autosave]);
 
   useEffect(() => {
     setLoadError(false);
     loadedRef.current = false;
     previousLangRef.current = null;
     let cancelled = false;
-    const cacheKey = `draft_${resumeId}`;
-    const cached = sessionStorage.getItem(cacheKey);
+    const cached = readDraft(resumeId, username);
     if (cached) {
-      try {
-        const cachedDocument: unknown = JSON.parse(cached);
-        if (!isEditorDocument(cachedDocument)) throw new Error('INVALID_DRAFT');
-        const { resume: r, settings: s } = cachedDocument;
-        history.reset({ resume: normalizeResumeShape(r), settings: normalizeSettingsShape(s) });
-        setDirty(true);
-        setTimeout(() => { loadedRef.current = true; }, 0);
-        return;
-      } catch {}
+      const document = { resume: normalizeResumeShape(cached.resume), settings: normalizeSettingsShape(cached.settings) };
+      history.reset(document);
+      loadedRef.current = true;
+      autosave.update(document);
+      return;
     }
     getResume(resumeId).then((stored) => {
       if (cancelled) return;
       if (!stored) { setLoadError(true); return; }
       history.reset({ resume: normalizeResumeShape(stored.resume), settings: normalizeSettingsShape(stored.settings) });
-      setTimeout(() => { loadedRef.current = true; }, 0);
+      loadedRef.current = true;
     }).catch(() => { if (!cancelled) setLoadError(true); });
     return () => { cancelled = true; };
-  }, [resumeId, loadAttempt]);
+  }, [resumeId, loadAttempt, username, autosave, history]);
 
   useEffect(() => {
     if (!resume || previousLangRef.current === lang) return;
@@ -468,62 +367,28 @@ export default function Editor({ resumeId }: {resumeId:string}) {
     });
   }, [lang, resume, settings.template, settings.titleKind, settings.titleMode]);
 
-  const [saving, setSaving] = useState(false);
-  const [dirty, setDirty] = useState(false);
-  const loadedRef = useRef(false);
-
-  useEffect(() => {
-    if (!loadedRef.current) return;
-    setDirty(true);
-    const cacheKey = `draft_${resumeId}`;
-    sessionStorage.setItem(cacheKey, JSON.stringify({ resume, settings }));
-  }, [resume, settings, resumeId]);
-
-  const [saveError, setSaveError] = useState('');
-  const savingRef = useRef(false);
-
   const handleSave = async () => {
-    if (!resume || savingRef.current) return;
-    savingRef.current = true;
-    setSaving(true);
-    setSaveError('');
-    const savedDocument = history.getSnapshot().present;
-    try {
-      await saveResume(resumeId, savedDocument.resume!, savedDocument.settings);
-      // A save finishing after a new edit/undo must not discard that newer draft.
-      if (history.getSnapshot().present === savedDocument) {
-        sessionStorage.removeItem(`draft_${resumeId}`);
-        setDirty(false);
-      }
-      setSavedAt('Just now');
-    } catch (err) {
-      if (errorMessage(err) === 'UNAUTHORIZED') {
-        setSaveError(t('Your session expired. Sign in again to save.'));
-      } else {
-        setSaveError(t('Save failed. Your changes are cached locally.'));
-      }
-    } finally {
-      savingRef.current = false;
-      setSaving(false);
-    }
+    if (await autosave.flush()) setSavedAt('Just now');
   };
 
   useEffect(() => {
-    if (!loadedRef.current || !dirty || saving) return;
-    const timer = setTimeout(() => { handleSave(); }, 10000);
-    return () => clearTimeout(timer);
-  }, [resume, settings, dirty, saving]);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 's') {
-        e.preventDefault();
-        handleSave();
+    const onKey = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') {
+        event.preventDefault();
+        void autosave.flush();
       }
     };
+    const onHidden = () => { if (document.visibilityState === 'hidden') void autosave.flush(true); };
+    const onPageHide = () => { void autosave.flush(true); };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [resume, settings]);
+    window.addEventListener('pagehide', onPageHide);
+    document.addEventListener('visibilitychange', onHidden);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('pagehide', onPageHide);
+      document.removeEventListener('visibilitychange', onHidden);
+    };
+  }, [autosave]);
 
   useEffect(() => {
     if (!exportOpen) return undefined;
@@ -633,17 +498,21 @@ export default function Editor({ resumeId }: {resumeId:string}) {
     const base = resume.title || resume.profile.name || 'resume';
     const node = paperRef.current;
     try {
-      const { exportResumeAsDomVectorPdf, exportResumeAsJson, exportResumeAsPng } = await import('../exporters.ts');
       if (type === 'json') {
+        const { exportResumeAsJson } = await import('../lib/backup.ts');
         exportResumeAsJson(resume, settings, `${base}.json`);
       } else {
         const surface = await createExportSurface(node);
         try {
-          if (type === 'pdf') await exportResumeAsDomVectorPdf(surface.node, `${base}.pdf`);
-          if (type === 'png') await exportResumeAsPng(surface.node, `${base}.png`);
-        } finally {
-          surface.destroy();
-        }
+          if (type === 'pdf') {
+            const { exportResumeAsDomVectorPdf } = await import('../exporters.ts');
+            await exportResumeAsDomVectorPdf(surface.node, `${base}.pdf`);
+          }
+          if (type === 'png') {
+            const { exportResumeAsPng } = await import('../lib/png-export.ts');
+            await exportResumeAsPng(surface.node, `${base}.png`);
+          }
+        } finally { surface.destroy(); }
       }
       setExportFeedback({
         type: 'success',
@@ -659,8 +528,13 @@ export default function Editor({ resumeId }: {resumeId:string}) {
     } finally { setIsExporting(''); }
   };
 
-  const handleShare = async () => { const url = await generateShareUrl(resume, settings); setShareUrl(url); try { await navigator.clipboard.writeText(url); } catch {} };
-  const handleCheck = () => setCheckResult(runChecks(resume, t));
+  const handleShare = () => setSharing(true);
+  const handleCheck = () => setCheckOpen(true);
+  const openVersions = async () => { await autosave.flush(); setVersionsOpen(true); };
+  const openTailor = (jobDescription = '') => {
+    setTailorJobDescription(jobDescription);
+    setTailorSnapshot({ resume: clone(resume), settings: clone(settings) });
+  };
   return (
     <div ref={editorRoot} className="flex h-screen flex-col overflow-hidden bg-background">
       {deleteNotice === history.getSnapshot().present && canUndo && <div role="status" className="fixed bottom-5 left-1/2 z-40 flex -translate-x-1/2 items-center gap-3 rounded-lg border border-border bg-card p-3 shadow-lg">
@@ -678,6 +552,7 @@ export default function Editor({ resumeId }: {resumeId:string}) {
         onManager={() => setManagerOpen(true)}
         onExportToggle={() => setExportOpen((v) => !v)}
         onExport={handleExport} onShare={handleShare} onCheck={handleCheck}
+        onVersions={() => { void openVersions(); }} onJobMatch={() => setJobMatchOpen(true)}
       />
       <div className="shrink-0 border-b border-border bg-card px-4 py-1.5 sm:hidden">
         <input className="w-full min-w-0 truncate rounded bg-transparent text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring" aria-label={t('Resume name')} value={resume.title} onChange={(event) => updateTitle(event.target.value)} />
@@ -716,8 +591,8 @@ export default function Editor({ resumeId }: {resumeId:string}) {
           ? "grid-cols-1 lg:grid-cols-[64px_minmax(0,1fr)]"
           : "grid-cols-1 lg:grid-cols-[64px_480px_minmax(0,1fr)]"
       )}>
-        <SideRail activeView={activeView} onActiveView={setActiveView} onTailor={() => setTailorSnapshot({ resume: clone(resume), settings: clone(settings) })} />
-        <MobileModeBar activeView={activeView} onActiveView={setActiveView} onTailor={() => setTailorSnapshot({ resume: clone(resume), settings: clone(settings) })} />
+        <SideRail activeView={activeView} onActiveView={setActiveView} onTailor={() => openTailor()} onVersions={() => { void openVersions(); }} onJobMatch={() => setJobMatchOpen(true)} />
+        <MobileModeBar activeView={activeView} onActiveView={setActiveView} onTailor={() => openTailor()} />
         {activeView !== 'preview' && (
           <div className="light-panel min-h-0 border-r border-zinc-200 bg-white">
             {activeView === 'template' ? (
@@ -740,41 +615,34 @@ export default function Editor({ resumeId }: {resumeId:string}) {
         </PreviewStage>
       </main>
       {managerOpen && <ModuleManager resume={resume} onClose={() => setManagerOpen(false)} onAddSection={addSection} onSection={updateSection} onMoveSection={moveSection} onDeleteSection={deleteSection} />}
-      {shareUrl && <ShareModal url={shareUrl} onClose={() => setShareUrl('')} />}
-      {checkResult && <CheckPanel result={checkResult} onClose={() => setCheckResult(null)} />}
-      {tailorSnapshot && <TailorResumeDialog key={resumeId} snapshot={tailorSnapshot} currentResume={resume} onClose={() => setTailorSnapshot(null)} />}
+      {sharing && <ShareResumeDialog resume={resume} settings={settings} onClose={() => setSharing(false)} />}
+      {checkOpen && <CheckPanel resume={resume} onClose={() => setCheckOpen(false)} onLocate={(id) => { setCheckOpen(false); locateFromPreview(id); }} />}
+      <Suspense fallback={<Skeleton className="fixed right-4 top-20 h-20 w-64" />}>
+        {versionsOpen && <VersionHistoryDialog resumeId={resumeId} document={{ resume, settings }} onClose={() => setVersionsOpen(false)} beforeRestore={() => autosave.flush()} onRestored={id => navigate(`/editor/${id}`)} />}
+        {jobMatchOpen && <JobMatchPanel resumeId={resumeId} resume={resume} onClose={() => setJobMatchOpen(false)} onLocate={id => { setJobMatchOpen(false); locateFromPreview(id); }} onTailor={job => { setJobMatchOpen(false); openTailor(job?.jobDescription); }} />}
+      </Suspense>
+      {tailorSnapshot && <TailorResumeDialog key={resumeId} snapshot={tailorSnapshot} currentResume={resume} initialJobDescription={tailorJobDescription} onClose={() => setTailorSnapshot(null)} />}
     </div>
   );
 }
 
-function ShareModal({ url, onClose }: {url:string;onClose?:() => void}) {
+function CheckPanel({ resume, onClose, onLocate }: {resume:Resume;onClose:() => void;onLocate:(id:string) => void}) {
   const { t } = useTheme();
-  return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-foreground/30 px-5" onClick={onClose}>
-      <div className="flex w-full max-w-md flex-col gap-4 rounded-lg border border-border bg-card p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
-        <h3 className="text-base font-semibold text-foreground">{t('Share link created')}</h3>
-        <p className="text-sm text-muted-foreground">{t('The link was copied to your clipboard. Anyone with it can view the resume preview.')}</p>
-        <input readOnly value={url} onFocus={(e) => e.target.select()} className="w-full px-3 py-2 bg-muted border border-border rounded-md text-xs text-foreground" />
-        <Button className="w-full" onClick={onClose}>{t('Close')}</Button>
-      </div>
-    </div>
-  );
-}
-
-function CheckPanel({ result, onClose }: {result:ReturnType<typeof runChecks>;onClose?:() => void}) {
-  const { t } = useTheme();
+  const result = useMemo(() => runChecks(resume, t), [resume, t]);
+  const locating = useRef(false);
   const typeLabel = { error: t('Error'), warning: t('Warning'), suggestion: t('Suggestion') };
   const typeColor: Record<string, React.ComponentProps<typeof Badge>["variant"]> = { error: 'destructive', warning: 'warning', suggestion: 'secondary' };
   return (
-    <div className="fixed top-0 right-0 h-full w-80 bg-card border-l border-border z-40 flex flex-col overflow-hidden">
-      <header className="flex items-center justify-between px-4 py-3 border-b border-border">
-        <div className="flex items-center gap-2">
-          <strong className="text-sm text-foreground">{t('Resume check')}</strong>
+    <Sheet open onOpenChange={(open) => { if (!open) onClose(); }}>
+      <SheetContent className="overflow-hidden" closeLabel={t('Close')} finalFocus={() => !locating.current}>
+      <SheetHeader className="border-b border-border pr-12">
+        <div className="flex flex-wrap items-center gap-2">
+          <SheetTitle>{t('Resume check')}</SheetTitle>
           <Badge variant="outline">{t('{score} points', { score: result.score })}</Badge>
         </div>
-        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onClose}><X size={16} /></Button>
-      </header>
-      <div className="flex flex-1 flex-col gap-2 overflow-y-auto p-3">
+        <SheetDescription>{t('Review contact details, dates and visible content. Checks run on this device.')}</SheetDescription>
+      </SheetHeader>
+      <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-4 pb-4">
         {result.results.length === 0 && <p className="text-sm text-muted-foreground text-center py-8">{t('Great—no issues found!')}</p>}
         {result.results.map((r, i) => (
           <div key={i} className="flex flex-col gap-1 rounded-lg bg-muted/50 p-3">
@@ -783,14 +651,16 @@ function CheckPanel({ result, onClose }: {result:ReturnType<typeof runChecks>;on
               <span className="text-xs text-muted-foreground">{r.category}</span>
             </div>
             <p className="text-xs text-foreground leading-relaxed">{r.message}</p>
+            {r.targetId && <Button variant="outline" size="sm" className="mt-2 self-start" onClick={() => { locating.current = true; onLocate(r.targetId!); }}>{t('Go to issue')}<ChevronRight data-icon="inline-end" /></Button>}
           </div>
         ))}
       </div>
-    </div>
+      </SheetContent>
+    </Sheet>
   );
 }
 
-function TopBar({ canUndo, canRedo, onUndo, onRedo, resume, activeView, onActiveView, savedAt, dirty, saving, saveError, onSave, isExporting, exportOpen, exportMenuRef, fontFamily, onFontFamily, onResumeTitle, onManager, onExportToggle, onExport, onShare, onCheck }: {canUndo:boolean;canRedo:boolean;onUndo:() => void;onRedo:() => void;resume:Resume;activeView:string;onActiveView:(view:string) => void;savedAt:string;dirty:boolean;saving:boolean;saveError:string;onSave:() => void;isExporting:string;exportOpen:boolean;exportMenuRef:React.RefObject<HTMLDivElement>;fontFamily:string;onFontFamily:(font:string) => void;onResumeTitle:(title:string) => void;onManager:() => void;onExportToggle:() => void;onExport:(type:string) => void;onShare:() => void;onCheck:() => void}) {
+function TopBar({ canUndo, canRedo, onUndo, onRedo, resume, activeView, onActiveView, savedAt, dirty, saving, saveError, onSave, isExporting, exportOpen, exportMenuRef, fontFamily, onFontFamily, onResumeTitle, onManager, onExportToggle, onExport, onShare, onCheck, onVersions, onJobMatch }: {canUndo:boolean;canRedo:boolean;onUndo:() => void;onRedo:() => void;resume:Resume;activeView:string;onActiveView:(view:string) => void;savedAt:string;dirty:boolean;saving:boolean;saveError:string;onSave:() => void;isExporting:string;exportOpen:boolean;exportMenuRef:React.RefObject<HTMLDivElement>;fontFamily:string;onFontFamily:(font:string) => void;onResumeTitle:(title:string) => void;onManager:() => void;onExportToggle:() => void;onExport:(type:string) => void;onShare:() => void;onCheck:() => void;onVersions:()=>void;onJobMatch:()=>void}) {
   const { t } = useTheme();
   const modes = [
     { id: 'edit', label: 'Edit', icon: PencilLine },
@@ -800,7 +670,7 @@ function TopBar({ canUndo, canRedo, onUndo, onRedo, resume, activeView, onActive
   return (
     <header className="flex h-14 shrink-0 items-center gap-3 border-b border-border bg-card px-3 sm:px-4">
       <div className="flex min-w-0 items-center gap-2">
-        <Button variant="ghost" size="sm" className="shrink-0" onClick={() => navigate('/dashboard')} aria-label={t('Back to My Resumes')}>
+        <Button variant="ghost" size="sm" className="shrink-0" onClick={async () => { await onSave(); navigate('/dashboard'); }} aria-label={t('Back to My Resumes')}>
           <Home size={14} /> <span className="hidden sm:inline">{t('My Resumes')}</span>
         </Button>
         <Button
@@ -854,11 +724,20 @@ function TopBar({ canUndo, canRedo, onUndo, onRedo, resume, activeView, onActive
         })}
       </div>
 
-      <div className="flex items-center gap-1.5 shrink-0">
+      <div className="ml-auto flex items-center gap-1.5 shrink-0 lg:ml-0">
         <LanguageMenu />
-        <Button variant="outline" size="sm" className="hidden text-xs md:inline-flex" onClick={onManager}>{t('Sections')}</Button>
-        <Button variant="ghost" size="sm" className="hidden text-xs md:inline-flex" onClick={onCheck}><Sparkles size={14} /> {t('Check')}</Button>
-        <Button variant="ghost" size="sm" className="hidden text-xs sm:inline-flex" onClick={onShare}><Share2 size={14} /> {t('Share')}</Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger render={<Button variant="outline" size="sm" aria-label={t('Resume tools')} />}><Wrench data-icon="inline-start" /><span className="hidden sm:inline">{t('Tools')}</span></DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="min-w-52">
+            <DropdownMenuGroup>
+              <DropdownMenuItem onClick={onVersions}><History />{t('Version history')}</DropdownMenuItem>
+              <DropdownMenuItem onClick={onJobMatch}><BriefcaseBusiness />{t('Job matching')}</DropdownMenuItem>
+              <DropdownMenuItem onClick={onManager}><Layers3 />{t('Sections')}</DropdownMenuItem>
+              <DropdownMenuItem onClick={onCheck}><Sparkles />{t('Resume check')}</DropdownMenuItem>
+              <DropdownMenuItem onClick={onShare}><Share2 />{t('Share')}</DropdownMenuItem>
+            </DropdownMenuGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
         <div className="relative" ref={exportMenuRef}>
           <Button
             size="sm"
@@ -905,7 +784,7 @@ function FontPicker({ value, onChange, className, selectClassName, ariaLabel = '
   );
 }
 
-function SideRail({ activeView, onActiveView, onTailor }: {activeView:string;onActiveView:(view:string) => void;onTailor:() => void}) {
+function SideRail({ activeView, onActiveView, onTailor, onVersions, onJobMatch }: {activeView:string;onActiveView:(view:string) => void;onTailor:() => void;onVersions:()=>void;onJobMatch:()=>void}) {
   const { t } = useTheme();
   const items = [
     { id: 'edit', label: 'Edit', icon: PencilLine },
@@ -915,6 +794,8 @@ function SideRail({ activeView, onActiveView, onTailor }: {activeView:string;onA
   return (
     <nav className="hidden flex-col items-center gap-2 border-r border-border bg-card py-4 lg:flex" aria-label={t('Editor navigation')}>
       <button onClick={onTailor} title={t('Tailor to a job')} aria-label={t('Tailor to a job')} className="flex w-12 flex-col items-center gap-1 rounded-lg bg-primary/10 px-1 py-2.5 text-[10px] text-primary transition-colors hover:bg-primary/20"><Sparkles size={18} /><span>{t('Tailor')}</span></button>
+      <button onClick={onJobMatch} title={t('Job matching')} aria-label={t('Job matching')} className="flex w-12 flex-col items-center gap-1 rounded-lg px-1 py-2.5 text-[10px] text-muted-foreground hover:bg-muted"><BriefcaseBusiness size={18} /><span>{t('Match')}</span></button>
+      <button onClick={onVersions} title={t('Version history')} aria-label={t('Version history')} className="flex w-12 flex-col items-center gap-1 rounded-lg px-1 py-2.5 text-[10px] text-muted-foreground hover:bg-muted"><History size={18} /><span>{t('Versions')}</span></button>
       {items.map((item) => {
         const Icon = item.icon;
         return (
@@ -1748,120 +1629,6 @@ function PaginatedResumePreview({ resume, settings, refNode, scale, activeItemId
         ))}
       </div>
     </>
-  );
-}
-
-export function ResumePreview({ resume, settings, refNode, className, paperStyle, profileHeading = 'h1' }: {resume:Resume;settings:ResumeSettings;refNode?:React.Ref<HTMLElement>;className?:string;paperStyle?:React.CSSProperties;profileHeading?:'h1'|'h2'}) {
-  const accent = settings.accent ?? TEMPLATE_ACCENTS[settings.template];
-  const templateVariant = TEMPLATE_VARIANTS[settings.template] ?? 'classic';
-  const visible = resume.sections.filter((s) => s.visible);
-  const style: React.CSSProperties & Record<`--${string}`, string | number> = { '--accent': accent, '--resume-font': `"${settings.fontFamily}", "Microsoft YaHei", Arial, sans-serif`, '--resume-size': `${settings.fontSize}px`, '--resume-line': settings.lineHeight, '--resume-gap': settings.compact ? '11px' : '18px' };
-  return (
-    <article className={cn('resume-paper', `template-${templateVariant}`, settings.compact && 'compact', className)} style={{ ...style, ...paperStyle }} ref={refNode}>
-      <ResumeBackground />
-      <ResumeHeader profile={resume.profile} template={templateVariant} profileHeading={profileHeading} />
-      <div className="resume-body">{visible.map((s) => <ResumeSection key={s.id} section={s} />)}</div>
-    </article>
-  );
-}
-
-function ResumeBackground() {
-  return (
-    <div className="resume-bg" aria-hidden="true">
-      <span className="resume-bg-arc resume-bg-arc-1" />
-      <span className="resume-bg-arc resume-bg-arc-2" />
-      <span className="resume-bg-grid" />
-      <span className="resume-bg-side" />
-      <span className="resume-bg-corner" />
-    </div>
-  );
-}
-
-function ResumeHeader({ profile, template, profileHeading }: {profile:ResumeProfile;template:string;profileHeading?:'h1'|'h2'}) {
-  const NameTag = profileHeading || 'h1';
-  const { t } = useTheme();
-  const avatar = <img src={resolveResumeAvatar(profile.avatar)} alt={t('Profile photo')} crossOrigin="anonymous" />;
-  const profileInfo = getProfileInfoItems(profile, t);
-  if (template === 'rose') {
-    return (
-      <header data-preview-target="profile" className="resume-header rose-header">
-        <div className="rose-photo">{avatar}</div>
-        <div className="rose-banner">
-          <NameTag className="resume-name">{profile.name || t('Name')}</NameTag>
-          <div className="rose-info-grid">
-            {profile.headline && <span className="rose-info-item"><strong>{t('Target role')}</strong><em>{profile.headline}</em></span>}
-            {profile.phone && <span className="rose-info-item"><strong>{t('Phone')}</strong><em>{profile.phone}</em></span>}
-            {profile.email && <span className="rose-info-item"><strong>{t('Email')}</strong><em>{profile.email}</em></span>}
-            {profile.city && <span className="rose-info-item"><strong>{t('City')}</strong><em>{profile.city}</em></span>}
-            {getAgeLabel(profile.birthday, t) && <span className="rose-info-item"><strong>{t('Age')}</strong><em>{getAgeLabel(profile.birthday, t)}</em></span>}
-            {profile.status && <span className="rose-info-item"><strong>{t('Status')}</strong><em>{profile.status}</em></span>}
-            {profile.website && <span className="rose-info-item"><strong>{t('Website')}</strong><em>{profile.website}</em></span>}
-          </div>
-        </div>
-      </header>
-    );
-  }
-  if (template === 'leftline') {
-    const contactLine = [profile.phone, profile.email, profile.city].filter(Boolean).join('  |  ');
-    return (
-      <header data-preview-target="profile" className="resume-header classic-header">
-        <div>
-          <NameTag className="resume-name">{profile.name || t('Name')}</NameTag>
-          <p>{[contactLine, profile.birthday, profile.status].filter(Boolean).join('\n')}</p>
-        </div>
-        <div className="classic-photo">{avatar}</div>
-      </header>
-    );
-  }
-  return (
-    <header data-preview-target="profile" className="resume-header classic-header">
-      <div>
-        <NameTag className="resume-name">{profile.name || t('Name')}</NameTag>
-        <p>{profileInfo.join(' | ')}</p>
-      </div>
-      <div className="classic-photo">{avatar}</div>
-    </header>
-  );
-}
-
-function ResumeSection({ section }: {section:ResumeSectionData}) {
-  const kind = SECTION_TEMPLATES[section.type]?.kind ?? 'experience';
-  return (
-    <section className={`resume-section section-${kind}`}>
-      <h2 data-preview-target={`section:${section.id}`}>{section.label}</h2>
-      <div className="section-content">{section.items.map((item) => <ResumeItem key={item.id} kind={kind} item={item} />)}</div>
-    </section>
-  );
-}
-
-function ResumeItem({ kind, item }: {kind:string;item:ResumeItemData}) {
-  const { t } = useTheme();
-  if (kind === 'text') return <p data-preview-target={item.id} className="summary-text">{item.body}</p>;
-  if (kind === 'education') {
-    const period = getItemPeriodLabel(item, t);
-    const metaParts = [item.major, item.degree, item.location].filter(Boolean);
-    return (
-      <div data-preview-target={item.id} className="experience-item education-item">
-        <div className="experience-top"><strong>{item.school}</strong><span>{period}</span></div>
-        <div className="experience-meta"><span>{metaParts.join(' · ')}</span></div>
-        {!isRichTextEmpty(getEducationBody(item)) && <div className="experience-body" dangerouslySetInnerHTML={{ __html: getEducationBody(item) }} />}
-      </div>
-    );
-  }
-  if (kind === 'simpleList') return (
-    <div data-preview-target={item.id} className="simple-row"><strong>{item.title}</strong><span>{item.meta}</span>{item.description && <p>{item.description}</p>}</div>
-  );
-  if (kind === 'chips') return (
-    <div data-preview-target={item.id} className="skill-row"><strong>{item.title}</strong><div className="skill-lines">{(item.values ?? []).map((v, i) => <span key={`${v}-${i}`}>{v}</span>)}</div></div>
-  );
-  const period = getItemPeriodLabel(item, t);
-  const metaParts = [item.role, item.department, item.location].filter(Boolean);
-  return (
-    <div data-preview-target={item.id} className="experience-item">
-      <div className="experience-top"><strong>{item.org}</strong><span>{period}</span></div>
-      <div className="experience-meta"><span>{metaParts.join(' · ')}</span></div>
-      {!isRichTextEmpty(getExperienceBody(item)) && <div className="experience-body" dangerouslySetInnerHTML={{ __html: getExperienceBody(item) }} />}
-    </div>
   );
 }
 

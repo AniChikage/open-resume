@@ -3,6 +3,7 @@ import { createContext,useContext,useEffect,useState } from 'react';
 import type { AppConfig,WorkspaceUser } from '../types.ts';
 import { clearContinuation,rememberContinuation,takeContinuation } from './auth-continuation.ts';
 import { navigate } from './router.ts';
+import { clearDrafts } from './drafts.ts';
 
 export interface AuthState { user:WorkspaceUser|null; loading:boolean; config:AppConfig|null; login:(destination?:unknown)=>void; loginWithUsername:(username:string,password:string)=>Promise<void>; logout:()=>Promise<void>; showAuthModal:boolean; setShowAuthModal:(open:boolean)=>void }
 const AuthContext = createContext<AuthState | null>(null);
@@ -40,7 +41,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
   async function logout() {
     const res = await fetch('/api/auth/logout', { method: 'POST' });
     if (!res.ok) return;
-    for (const key of Object.keys(sessionStorage)) if (key.startsWith('draft_')) sessionStorage.removeItem(key);
+    clearDrafts();
     setUser(null);
     navigate('/');
   }
