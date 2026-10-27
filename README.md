@@ -46,10 +46,12 @@ Screenshots and the walkthrough show the real app with fictional English sample 
 
 ## Getting started
 
+The commands below pin the first stable release, [v1.0.0](https://github.com/AniChikage/open-resume/releases/tag/v1.0.0). See [CHANGELOG.md](CHANGELOG.md) for version history.
+
 ### Docker
 
 ```sh
-git clone https://github.com/AniChikage/open-resume.git
+git clone --branch v1.0.0 --depth 1 https://github.com/AniChikage/open-resume.git
 cd open-resume
 docker compose up -d --build
 ```
@@ -63,7 +65,7 @@ Data is stored in the `resumes` named volume and survives container replacement.
 Requires **Node.js 24 or later**.
 
 ```sh
-git clone https://github.com/AniChikage/open-resume.git
+git clone --branch v1.0.0 --depth 1 https://github.com/AniChikage/open-resume.git
 cd open-resume
 npm ci
 npm run build

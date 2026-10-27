@@ -1,5 +1,14 @@
 # Verification
 
+## First stable release · 2026-10-27
+
+- Validated the published `main` baseline (`261efca`) in an isolated checkout; existing uncommitted work was kept separate.
+- All 72 regression tests, strict TypeScript checking, and the production build passed on the host. The Docker build also ran all 72 tests and the type-checked build with networking disabled.
+- Found and fixed a production-image startup failure: `server/app.ts` imports `src/lib/version-types.ts`, which was missing from the runtime stage. The Dockerfile now copies that module and imports the server module in the final stage, as the `node` user and with networking disabled, to detect missing runtime dependencies during builds.
+- The resulting `1.0.0` image ran on Node.js 24.22.1 / Linux ARM64 as UID 1000. Actual container HTTP checks passed for health, the built homepage, demo login, resume creation, editing, and a named snapshot.
+- Restarted the container using the same named data volume. The edited resume and named snapshot persisted; restoring the snapshot created a new resume with the historical content and preserved the source document.
+- Version metadata, the `v1.0.0` Git tag, the changelog, and the version-pinned English/Chinese installation instructions describe the same release. Linux AMD64 was not tested in this run.
+
 ## TypeScript migration · 2026-10-20
 
 - Migrated the frontend, local HTTP/SQLite server, tests, and Vite configuration

@@ -46,10 +46,12 @@
 
 ## 开始使用
 
+以下命令固定使用首个稳定版本 [v1.0.0](https://github.com/AniChikage/open-resume/releases/tag/v1.0.0)，版本记录见 [CHANGELOG.md](CHANGELOG.md)。
+
 ### Docker
 
 ```sh
-git clone https://github.com/AniChikage/open-resume.git
+git clone --branch v1.0.0 --depth 1 https://github.com/AniChikage/open-resume.git
 cd open-resume
 docker compose up -d --build
 ```
@@ -63,7 +65,7 @@ docker compose up -d --build
 需要 **Node.js 24 或以上**。
 
 ```sh
-git clone https://github.com/AniChikage/open-resume.git
+git clone --branch v1.0.0 --depth 1 https://github.com/AniChikage/open-resume.git
 cd open-resume
 npm ci
 npm run build
