@@ -110,13 +110,13 @@ export function SiteHeader({ current = 'home' }: {current?:string}) {
   const { t, lang } = useTheme();
   const { user, login, logout } = useAuth();
   const [mobileOpen, setMobileOpen] = useState(false);
-  return <header className="sticky top-0 z-50 border-b border-border bg-background/95 backdrop-blur-md">
-    <div className="site-shell mx-auto flex h-16 items-center justify-between gap-3 px-5 lg:px-8">
+  return <header className="site-header sticky top-0 z-50 border-b border-border bg-background/95 backdrop-blur-md">
+    <div className="site-header-inner site-shell mx-auto flex h-16 items-center justify-between gap-3 px-5 lg:px-8">
       <a href="#/" aria-label="Open Resume"><LogoFull /></a>
       <nav className="hidden items-center gap-6 md:flex" aria-label={t('Main navigation')}>
         {NAV_ITEMS.map((item) => <a key={item.key} href={item.href} aria-current={current === item.key ? 'page' : undefined} className={`text-sm transition-colors hover:text-primary ${current === item.key ? 'font-semibold text-foreground' : 'text-muted-foreground'}`}>{t(item.label)}</a>)}
       </nav>
-      <div className="flex items-center gap-2">
+      <div className="site-header-actions flex items-center gap-2">
         <a href="https://justcv.org" target="_blank" rel="noopener noreferrer" className="hidden text-sm text-muted-foreground hover:text-primary lg:block">justcv.org ↗</a>
         <Button variant="ghost" size="icon" className="md:hidden" aria-label={mobileOpen ? t('Close menu') : t('Open menu')} aria-expanded={mobileOpen} onClick={() => setMobileOpen(!mobileOpen)}>{mobileOpen ? <X /> : <Menu />}</Button>
         <LanguageMenu iconOnly />
@@ -130,11 +130,5 @@ export function SiteHeader({ current = 'home' }: {current?:string}) {
 }
 
 export function SiteFooter() {
-  const { lang } = useTheme();
-  return <footer className="border-t border-border bg-background">
-    <div className="site-shell mx-auto flex flex-col gap-5 px-5 py-8 sm:flex-row sm:items-center sm:justify-between lg:px-8">
-      <div><LogoFull /><p className="mt-2 text-xs text-muted-foreground">MIT · {openText(lang, 'eyebrow')}</p></div>
-      <div className="max-w-md text-sm leading-6 text-muted-foreground"><p>{openText(lang, 'hostedDescription')}</p><a href="https://justcv.org" target="_blank" rel="noopener noreferrer" className="font-medium text-primary hover:underline">{openText(lang, 'support')} ↗</a></div>
-    </div>
-  </footer>;
+  return <footer className="site-footer border-t border-border bg-background"><div className="site-shell mx-auto flex flex-col gap-5 px-5 py-8 sm:flex-row sm:items-center sm:justify-between lg:px-8"><LogoFull /><div className="site-footer-links"><span>MIT</span><a href="https://github.com/AniChikage/open-resume" target="_blank" rel="noopener noreferrer">GitHub</a><a href="https://justcv.org" target="_blank" rel="noopener noreferrer">justcv.org</a></div></div></footer>;
 }

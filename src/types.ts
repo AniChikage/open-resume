@@ -21,7 +21,7 @@ export interface ResumeSection {
 export interface Resume { title: string; profile: ResumeProfile; sections: ResumeSection[] }
 export interface ResumeSettings {
   template: string; accent: string; fontFamily: string; fontSize: number;
-  lineHeight: number; compact: boolean;
+  lineHeight: number; compact: boolean; paperSize?: 'a4' | 'letter';
   titleMode?: 'auto' | 'custom'; titleKind?: 'blank' | 'template' | 'custom';
 }
 export interface EditorDocument { resume: Resume; settings: ResumeSettings }

@@ -25,6 +25,7 @@ export function isResumeSettings(value: unknown): value is ResumeSettings {
     && typeof value.fontSize === 'number' && Number.isFinite(value.fontSize)
     && typeof value.lineHeight === 'number' && Number.isFinite(value.lineHeight)
     && typeof value.compact === 'boolean'
+    && (value.paperSize === undefined || value.paperSize === 'a4' || value.paperSize === 'letter')
     && (value.titleMode === undefined || value.titleMode === 'auto' || value.titleMode === 'custom')
     && (value.titleKind === undefined || value.titleKind === 'blank' || value.titleKind === 'template' || value.titleKind === 'custom');
 }

@@ -9,46 +9,62 @@ const BREAK_AVOID_SELECTOR = [
   '.simple-row',
   '.skill-row',
   '.summary-text',
-  '.resume-bullets li'
+  '.resume-bullets li',
+  '.experience-body li',
+  '.experience-body p'
 ].join(',');
 
-export function getSmartPageCuts(node: HTMLElement | null, pageHeightPx: number, options: {totalHeight?:number; scaleY?:number} = {}) {
+export function getSmartPageCuts(node: HTMLElement | null, pageHeightPx: number, options: {totalHeight?:number; scaleY?:number;firstPageHeight?:number} = {}) {
   if (!node || !pageHeightPx) return [0, pageHeightPx || 0];
   const totalHeight = Math.ceil(options.totalHeight ?? Math.max(node.getBoundingClientRect().height, node.scrollHeight));
-  if (totalHeight <= pageHeightPx) return [0, Math.max(pageHeightPx, totalHeight)];
+  const firstHeight = options.firstPageHeight || pageHeightPx;
+  if (totalHeight <= firstHeight + 1) return [0, firstHeight];
 
   const ranges = collectBreakAvoidRanges(node, pageHeightPx, totalHeight, options.scaleY);
+  return paginateRanges(totalHeight, pageHeightPx, ranges, { firstPageHeight: firstHeight });
+}
+
+export function paginateRanges(totalHeight: number, pageHeightPx: number, ranges: {top:number;bottom:number;line?:boolean}[] = [], options: { firstPageHeight?: number } = {}) {
+  if (!Number.isFinite(totalHeight) || !Number.isFinite(pageHeightPx) || pageHeightPx <= 0 || totalHeight <= 0) return [0, Math.max(0, Number.isFinite(pageHeightPx) ? pageHeightPx : 0)];
+  let capacity = options.firstPageHeight || pageHeightPx;
+  if (totalHeight <= capacity) return [0, capacity];
   const cuts = [0];
-  const minUsefulPagePx = Math.floor(pageHeightPx * 0.45);
-  const endBufferPx = Math.floor(pageHeightPx * 0.08);
   let currentTop = 0;
 
-  while (currentTop + pageHeightPx < totalHeight) {
-    const maxCut = Math.min(currentTop + pageHeightPx, totalHeight);
+  while (currentTop + capacity < totalHeight) {
+    const minUsefulPagePx = Math.floor(capacity * 0.45);
+    const maxCut = Math.min(currentTop + capacity, totalHeight);
     let cut = maxCut;
 
-    for (let guard = 0; guard < 8; guard += 1) {
-      const conflict = ranges.find((range) => range.top < cut && range.bottom > cut);
+    for (let guard = 0; guard < ranges.length + 1; guard += 1) {
+      const conflict = ranges.find((range) => range.top < cut && range.bottom > cut && (range.line || range.top - currentTop >= minUsefulPagePx));
       if (!conflict) break;
 
       const cutBefore = conflict.top;
-      const cutAfter = conflict.bottom;
-      const canCutBefore = cutBefore - currentTop >= minUsefulPagePx;
-      const canCutAfter = cutAfter <= maxCut && cutAfter - currentTop >= minUsefulPagePx;
+      const canCutBefore = cutBefore > currentTop && (conflict.line || cutBefore - currentTop >= minUsefulPagePx);
 
       if (canCutBefore) cut = cutBefore;
-      else if (canCutAfter) cut = cutAfter;
       else break;
     }
 
-    if (cut <= currentTop || cut - currentTop < minUsefulPagePx) cut = maxCut;
-    if (totalHeight - cut < endBufferPx) cut = totalHeight;
-    cuts.push(Math.round(cut));
+    if (cut <= currentTop) cut = maxCut;
+    // Never fold a short trailing page into a page that is already full.
+    cuts.push(cut);
     currentTop = cut;
+    capacity = pageHeightPx;
   }
 
   if (cuts[cuts.length - 1] !== totalHeight) cuts.push(totalHeight);
   return cuts;
+}
+
+// Font ascender boxes can be taller than line-height. Keep a gap between line
+// boundaries so overlapping font metrics cannot push a break back to the
+// beginning of a long paragraph.
+export function getPaginationLineRange(top: number, bottom: number, lineHeight: number) {
+  const middle = (top + bottom) / 2;
+  const height = Math.min(bottom - top, Math.max(1, lineHeight - 1));
+  return { top: middle - height / 2, bottom: middle + height / 2, line: true as const };
 }
 
 function collectBreakAvoidRanges(node: HTMLElement, pageHeightPx: number, totalHeight: number, explicitScaleY: number | undefined) {
@@ -57,7 +73,7 @@ function collectBreakAvoidRanges(node: HTMLElement, pageHeightPx: number, totalH
   const scaleY = explicitScaleY ?? (cssHeight ? totalHeight / cssHeight : 1);
   const pad = Math.max(4, Math.round(4 * scaleY));
 
-  return Array.from(node.querySelectorAll(BREAK_AVOID_SELECTOR))
+  const blocks = Array.from(node.querySelectorAll(BREAK_AVOID_SELECTOR))
     .map((el) => {
       const rect = getAvoidRect(el);
       const top = Math.max(0, (rect.top - rootRect.top) * scaleY - pad);
@@ -69,6 +85,23 @@ function collectBreakAvoidRanges(node: HTMLElement, pageHeightPx: number, totalH
       return height > 2 && height < pageHeightPx * 0.92;
     })
     .sort((a, b) => a.top - b.top || a.bottom - b.bottom);
+
+  // A paragraph taller than one page must still break between its text lines.
+  const lines: {top:number;bottom:number;line:boolean}[] = [];
+  const walker = node.ownerDocument.createTreeWalker(node, 4);
+  const range = node.ownerDocument.createRange();
+  for (let text = walker.nextNode(); text; text = walker.nextNode()) {
+    if (!text.textContent?.trim()) continue;
+    range.selectNodeContents(text);
+    const style = node.ownerDocument.defaultView!.getComputedStyle(text.parentElement!);
+    const lineHeight = Number.parseFloat(style.lineHeight) || Number.parseFloat(style.fontSize) * 1.2;
+    for (const rect of range.getClientRects()) {
+      if (!rect.width || !rect.height) continue;
+      const bounds = getPaginationLineRange((rect.top - rootRect.top) * scaleY, (rect.bottom - rootRect.top) * scaleY, lineHeight * scaleY);
+      lines.push({ ...bounds, top: Math.max(0, bounds.top), bottom: Math.min(totalHeight, bounds.bottom) });
+    }
+  }
+  return [...blocks, ...lines];
 }
 
 function getAvoidRect(el: Element) {

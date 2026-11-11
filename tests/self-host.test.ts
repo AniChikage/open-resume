@@ -91,6 +91,19 @@ test('static build is served; source/config/database paths and invalid documents
   assert.equal(raw.status, 400);
 });
 
+test('production serves PDF module workers with an executable JavaScript MIME type', async (t) => {
+  const f = await fixture(t);
+  await writeFile(path.join(f.dir, 'pdf.worker.mjs'), 'export const worker = true;');
+  const response = await f.request('/pdf.worker.mjs');
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get('content-type') || '', /^text\/javascript/);
+  assert.equal(await response.text(), 'export const worker = true;');
+  const head = await f.request('/pdf.worker.mjs', 'HEAD');
+  assert.equal(head.status, 200);
+  assert.match(head.headers.get('content-type') || '', /^text\/javascript/);
+  assert.equal(await head.text(), '');
+});
+
 test('optional AI has no daily quota and uses the configured endpoint/model without leaking contact fields', async (t) => {
   let calls = 0;
   const f = await fixture(t, {

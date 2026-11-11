@@ -1,4 +1,13 @@
 import type { Update } from '../types.ts';
+// Immutable updates share almost all branches. Skip those branches (especially
+// large photo strings) instead of serializing two complete documents per key.
+function sameDocument(a: unknown, b: unknown): boolean {
+  if (Object.is(a, b)) return true;
+  if (!a || !b || typeof a !== 'object' || typeof b !== 'object') return false;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  const left = Object.keys(a), right = Object.keys(b);
+  return left.length === right.length && left.every(key => Object.hasOwn(b, key) && sameDocument((a as Record<string, unknown>)[key], (b as Record<string, unknown>)[key]));
+}
 // A document is one unit: content and appearance always undo together.
 export function createEditorHistory<T>(initial: T, { limit = 60, now = Date.now } = {}) {
   let past: T[] = [], future: T[] = [], group: string | null = null, lastEdit = 0;
@@ -13,7 +22,7 @@ export function createEditorHistory<T>(initial: T, { limit = 60, now = Date.now 
     subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; },
     commit(update: Update<T>, editGroup: string | null = null) {
       const next = typeof update === 'function' ? (update as (current:T) => T)(snapshot.present) : update;
-      if (JSON.stringify(next) === JSON.stringify(snapshot.present)) return;
+      if (sameDocument(next, snapshot.present)) return;
       const time = now();
       if (!editGroup || editGroup !== group || time - lastEdit > 750 || future.length) {
         past = [...past, snapshot.present].slice(-limit);

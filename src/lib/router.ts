@@ -1,4 +1,12 @@
-import { useSyncExternalStore } from "react";
+import { useEffect, useLayoutEffect, useSyncExternalStore } from "react";
+
+const useBrowserLayoutEffect = typeof window === 'undefined' ? useEffect : useLayoutEffect;
+export function useRouteScroll(path: string) {
+  useBrowserLayoutEffect(() => {
+    // Section anchors keep their native behavior; application pages start at top.
+    if (!window.location.hash || window.location.hash.startsWith('#/')) window.scrollTo(0, 0);
+  }, [path]);
+}
 
 function parseHash() {
   const fragment = (typeof window === 'undefined' ? '' : window.location.hash).replace(/^#/, '');

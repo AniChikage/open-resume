@@ -7,6 +7,7 @@ import { Skeleton } from '../components/ui/skeleton.tsx';
 import { DEFAULT_SETTINGS,SECTION_TEMPLATES,TEMPLATE_ACCENTS,TEMPLATE_VARIANTS,resolveResumeAvatar } from '../data.ts';
 import { navigate } from '../lib/router.ts';
 import { parseShareData } from '../lib/share.ts';
+import { getPaperSize } from '../lib/paper.ts';
 import { useTheme } from '../lib/theme.tsx';
 import type { EditorDocument,ResumeItem as ResumeItemData,ResumeProfile,ResumeSection as ResumeSectionData,Translate } from '../types.ts';
 
@@ -129,7 +130,8 @@ export default function SharedView({ encodedData }: {encodedData:string}) {
   const accent = TEMPLATE_ACCENTS[settings.template] ?? settings.accent;
   const templateVariant = TEMPLATE_VARIANTS[settings.template] ?? 'classic';
   const visible = resume.sections.filter((s) => s.visible);
-  const style: React.CSSProperties & Record<`--${string}`, string | number> = { '--accent': accent, '--resume-font': `"${settings.fontFamily}", "Microsoft YaHei", Arial, sans-serif`, '--resume-size': `${settings.fontSize}px`, '--resume-line': settings.lineHeight, '--resume-gap': settings.compact ? '11px' : '18px' };
+  const paper = getPaperSize(settings.paperSize);
+  const style: React.CSSProperties & Record<`--${string}`, string | number> = { '--resume-page-width': `${paper.widthMm}mm`, '--resume-page-height': `${paper.heightMm}mm`, '--accent': accent, '--resume-font': `"${settings.fontFamily}", "Microsoft YaHei", Arial, sans-serif`, '--resume-size': `${settings.fontSize}px`, '--resume-line': settings.lineHeight, '--resume-gap': settings.compact ? '11px' : '18px' };
 
   return (
     <main className="min-h-screen bg-background">
@@ -140,7 +142,7 @@ export default function SharedView({ encodedData }: {encodedData:string}) {
         <div className="flex items-center gap-2"><span className="text-xs text-muted-foreground">{t('Read-only preview')}</span><LanguageMenu /></div>
       </header>
       <div className="flex justify-center pb-16 px-6">
-        <article className={`resume-paper template-${templateVariant} ${settings.compact ? 'compact' : ''}`} style={style}>
+        <article data-paper-size={settings.paperSize || 'a4'} className={`resume-paper template-${templateVariant} ${settings.compact ? 'compact' : ''}`} style={style}>
           <SharedBackground />
           <SharedHeader profile={resume.profile} template={templateVariant} />
           <div className="resume-body">{visible.map((s) => <SharedSection key={s.id} section={s} />)}</div>

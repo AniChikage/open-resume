@@ -3,7 +3,7 @@ import { AuthModal } from './components/AuthModal.tsx';
 import { Skeleton } from './components/ui/skeleton.tsx';
 import { TooltipProvider } from './components/ui/tooltip.tsx';
 import { AuthProvider,useAuth } from './lib/auth.tsx';
-import { useRouter } from './lib/router.ts';
+import { useRouter, useRouteScroll } from './lib/router.ts';
 import { ThemeProvider,useTheme } from './lib/theme.tsx';
 
 const Landing = lazy(() => import('./pages/Landing.tsx'));
@@ -14,6 +14,7 @@ const SharedView = lazy(() => import('./pages/SharedView.tsx'));
 
 function Routes() {
   const { path, params, match } = useRouter();
+  useRouteScroll(path);
   const { lang } = useTheme();
   const { user, loading } = useAuth();
   useEffect(() => { document.title = 'Open Resume · ' + (lang.startsWith('zh') ? '自由制作你的简历' : 'Your resume, on your terms'); }, [lang, path]);

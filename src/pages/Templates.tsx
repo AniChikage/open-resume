@@ -32,10 +32,8 @@ import {
 buildResumeFromTemplate,DEFAULT_SETTINGS,localizeTemplateLanguage,localizeTemplateTag,RESUME_TEMPLATES,
 } from '../data.ts';
 import { createResume,listResumes } from '../lib/storage.ts';
-import { ResumePreview } from './Editor.tsx';
+import ResumePaperThumb from '../components/ResumePaperThumb.tsx';
 
-const A4_PREVIEW_WIDTH = 794;
-const A4_PREVIEW_HEIGHT = 1123;
 const PAGE_SIZE = 12;
 
 const FILTER_GROUPS = [
@@ -86,53 +84,14 @@ function TemplateFilters({ lang, t, selectedTags, onToggle, onClear }: {lang:Lan
 }
 
 function TemplateThumb({ template, lang }: {template:ResumeTemplate;lang:Language}) {
-  const ref = useRef<HTMLDivElement | null>(null);
-  const [visible, setVisible] = useState(false);
-  const [scale, setScale] = useState(0.25);
-  const resume = useMemo(() => visible ? buildResumeFromTemplate(template, lang) : null, [lang, template, visible]);
+  const resume = useMemo(() => buildResumeFromTemplate(template, lang), [template, lang]);
   const settings = useMemo(() => ({ ...DEFAULT_SETTINGS, template: template.id, accent: template.accent }), [template]);
-
-  useEffect(() => {
-    const node = ref.current;
-    if (!node) return undefined;
-    const observer = new IntersectionObserver(([entry]) => {
-      if (entry.isIntersecting) {
-        setVisible(true);
-        observer.disconnect();
-      }
-    }, { rootMargin: '200px' });
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, []);
-
-  useEffect(() => {
-    if (!visible) return undefined;
-    const node = ref.current;
-    if (!node) return undefined;
-    const update = () => {
-      const { width, height } = node.getBoundingClientRect();
-      if (width && height) setScale(Math.min(width / A4_PREVIEW_WIDTH, height / A4_PREVIEW_HEIGHT));
-    };
-    update();
-    const observer = new ResizeObserver(update);
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, [visible]);
-
-  return (
-    <div ref={ref} className="relative aspect-[210/297] w-full overflow-hidden bg-white">
-      {resume ? (
-        <div style={{ width: A4_PREVIEW_WIDTH, height: A4_PREVIEW_HEIGHT, transform: `scale(${scale})`, transformOrigin: 'top left' }}>
-          <ResumePreview resume={resume} settings={settings} paperStyle={{ width: A4_PREVIEW_WIDTH, minHeight: A4_PREVIEW_HEIGHT, boxShadow: 'none', borderRadius: 0 }} />
-        </div>
-      ) : <Skeleton className="absolute inset-0 rounded-none" />}
-    </div>
-  );
+  return <div className="template-document-frame"><ResumePaperThumb resume={resume} settings={settings} /></div>;
 }
 
 function TemplateCard({ template, lang, t, onPreview, onUse }: {template:ResumeTemplate;lang:Language;t:Translate;onPreview:()=>void;onUse:()=>void}) {
   return (
-    <article className="group min-w-0">
+    <article className="template-card group min-w-0">
       <div className="relative overflow-hidden rounded-md border border-border bg-white transition hover:border-primary/45">
         <div aria-hidden="true"><TemplateThumb template={template} lang={lang} /></div>
         <div className="absolute inset-x-0 bottom-0 flex gap-2 border-t border-border bg-white/96 p-3 transition-transform md:translate-y-full group-hover:translate-y-0 group-focus-within:translate-y-0">
@@ -274,7 +233,7 @@ export default function Templates() {
   }, [user, authLoading, params.use]);
 
   return (
-    <main className="flex min-h-screen flex-col bg-background">
+    <main className="template-library flex min-h-screen flex-col bg-background">
       <SiteHeader current="templates" />
       <div className="site-shell mx-auto grid flex-1 lg:grid-cols-[240px_minmax(0,1fr)]">
         <aside className="hidden border-r border-border px-6 py-9 lg:block">

@@ -1,5 +1,5 @@
 import type { Resume,Translate } from '../types.ts';
-export interface CheckResult { type:'error'|'warning'|'suggestion'; category:string; message:string }
+export interface CheckResult { type:'error'|'warning'|'suggestion'; category:string; message:string; targetId?:string; field?:string; sectionType?:import('../types.ts').SectionType }
 function getRichTextText(value: unknown) {
   const raw = String(value ?? '');
   if (!raw) return '';
@@ -16,12 +16,14 @@ export function runChecks(resume: Resume, t: Translate = (message, values = {}) 
     results.push({
       type: 'error',
       category: t('Profile information'),
+      targetId: 'profile', field: 'Email',
       message: t('Add at least one contact method: phone or email.')
     });
   } else if (!resume.profile.phone || !resume.profile.email) {
     results.push({
       type: 'warning',
       category: t('Profile information'),
+      targetId: 'profile', field: resume.profile.email ? 'Phone' : 'Email',
       message: t('Add both phone and email so recruiters can reach you easily.')
     });
   }
@@ -30,6 +32,7 @@ export function runChecks(resume: Resume, t: Translate = (message, values = {}) 
     results.push({
       type: 'error',
       category: t('Profile information'),
+      targetId: 'profile', field: 'Name',
       message: t('Add your name.')
     });
   }
@@ -38,6 +41,7 @@ export function runChecks(resume: Resume, t: Translate = (message, values = {}) 
     results.push({
       type: 'warning',
       category: t('Profile information'),
+      targetId: 'profile', field: 'Target role',
       message: t('Add a target role so recruiters understand your goal immediately.')
     });
   }
@@ -49,6 +53,7 @@ export function runChecks(resume: Resume, t: Translate = (message, values = {}) 
     results.push({
       type: 'suggestion',
       category: t('Structure'),
+      sectionType: 'summary',
       message: t('Add a professional summary to surface your strongest qualifications.')
     });
   }
@@ -60,6 +65,7 @@ export function runChecks(resume: Resume, t: Translate = (message, values = {}) 
     results.push({
       type: 'warning',
       category: t('Structure'),
+      sectionType: 'work',
       message: t('Add an experience section.')
     });
   }
@@ -71,16 +77,16 @@ export function runChecks(resume: Resume, t: Translate = (message, values = {}) 
     results.push({
       type: 'warning',
       category: t('Structure'),
+      sectionType: 'education',
       message: t('Add an education section.')
     });
   }
 
-  const allBullets = resume.sections
-    .flatMap((s) => s.items)
-    .flatMap((item) => {
-      const body = getRichTextText(item.body).trim();
-      return body ? [item.body] : (item.bullets ?? []);
-    });
+  const contentEntries = resume.sections.filter(section => section.visible).flatMap(section => section.items.flatMap(item => {
+    const body = getRichTextText(item.body).trim();
+    return (body ? [item.body || ''] : (item.bullets || [])).map(text => ({ id: item.id, text, field: section.type === 'education' ? 'Additional details' : section.type === 'summary' || section.type === 'custom' ? 'Body' : 'Content' }));
+  }));
+  const allBullets = contentEntries.map(entry => entry.text);
 
   const longBullets = allBullets.filter(
     (b) => getRichTextText(b).length > 80
@@ -89,6 +95,7 @@ export function runChecks(resume: Resume, t: Translate = (message, values = {}) 
     results.push({
       type: 'warning',
       category: t('Content quality'),
+      targetId: contentEntries.find(entry => getRichTextText(entry.text).length > 80)?.id,
       message: t('{count} descriptions are over 80 characters. Consider making them more concise.', { count: longBullets.length })
     });
   }
@@ -101,6 +108,7 @@ export function runChecks(resume: Resume, t: Translate = (message, values = {}) 
     results.push({
       type: 'suggestion',
       category: t('Content quality'),
+      targetId: contentEntries.find(entry => { const text = getRichTextText(entry.text).trim(); return text.length > 0 && text.length < 10; })?.id,
       message: t('{count} descriptions are very short. Add specific outcomes.', { count: shortBullets.length })
     });
   }
@@ -113,6 +121,7 @@ export function runChecks(resume: Resume, t: Translate = (message, values = {}) 
     results.push({
       type: 'suggestion',
       category: t('Measurable impact'),
+      targetId: contentEntries.find(entry => { const text = getRichTextText(entry.text).trim(); return text.length > 15 && !/\d/.test(text); })?.id,
       message: t('{count} descriptions lack numbers. Quantifying results can make them more convincing.', { count: bulletsWithoutNumbers.length })
     });
   }
@@ -123,6 +132,7 @@ export function runChecks(resume: Resume, t: Translate = (message, values = {}) 
     results.push({
       type: 'warning',
       category: t('Structure'),
+      targetId: `section:${emptySections[0].id}`,
       message: t('{sections} is empty. Add content or hide the section.', { sections: emptySections.map((s) => s.label).join(', ') })
     });
   }
@@ -137,6 +147,7 @@ export function runChecks(resume: Resume, t: Translate = (message, values = {}) 
     results.push({
       type: 'suggestion',
       category: t('STAR method'),
+      targetId: contentEntries.find(entry => getRichTextText(entry.text).trim())?.id,
       message: t('Start more descriptions with strong action verbs to emphasize actions and results.')
     });
   }
@@ -145,5 +156,6 @@ export function runChecks(resume: Resume, t: Translate = (message, values = {}) 
     - results.filter((r) => r.type === 'warning').length * 10
     - results.filter((r) => r.type === 'suggestion').length * 3);
 
-  return { score, results };
+  const targetFields = Object.fromEntries(contentEntries.map(entry => [entry.id, entry.field]));
+  return { score, results: results.map(result => result.targetId && !result.field && targetFields[result.targetId] ? { ...result, field: targetFields[result.targetId] } : result) };
 }

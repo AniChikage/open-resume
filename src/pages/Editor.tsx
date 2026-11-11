@@ -1,34 +1,36 @@
+import { ResumePreview } from '../components/ResumePreview.tsx';
 import {
-BadgeCheck,Bold,BriefcaseBusiness,Calendar,CheckCircle2,ChevronLeft,ChevronRight,
+BadgeCheck,Bold,BriefcaseBusiness,Calendar,CheckCircle2,ChevronDown,ChevronLeft,ChevronRight,
 CircleAlert,
 Download,Eraser,Eye,FileJson,FileText,Gauge,GraduationCap,Home,
 ImageDown,Italic,Layers3,LayoutTemplate,Link2,
 List,ListOrdered,
 Loader2,
-Maximize2,MoveDown,MoveUp,Palette,PencilLine,Plus,
+MoveDown,MoveUp,Palette,PencilLine,Plus,
 PlusCircle,Redo2,Save,Share2,Sparkles,Trash2,Trophy,
 Underline,
 Undo2,
-UsersRound,X,ZoomIn,ZoomOut
+UsersRound,X,
 } from 'lucide-react';
 import type * as React from 'react';
-import { useEffect,useLayoutEffect,useRef,useState } from 'react';
+import { lazy,Suspense,useEffect,useId,useLayoutEffect,useRef,useState } from 'react';
 import { EditorTemplatePicker } from '../components/EditorTemplatePicker.tsx';
 import { LanguageMenu } from '../components/SiteChrome.tsx';
 import TailorResumeDialog from '../components/TailorResumeDialog.tsx';
+import ResumeHistory from '../components/ResumeHistory.tsx';
+import { transferText } from '../lib/transfer-copy.ts';
 import { Badge } from '../components/ui/badge.tsx';
 import { Button } from '../components/ui/button.tsx';
 import { Skeleton } from '../components/ui/skeleton.tsx';
+import { Field as FormField, FieldGroup, FieldLabel } from '../components/ui/field.tsx';
+import { visualText } from '../lib/visual-copy.ts';
 import {
 createSectionItem,DEFAULT_SETTINGS,FONT_OPTIONS,getSectionCopy,inferSystemResumeTitleKind,
 localizeResumeSections,localizeResumeTitle,
 resolveResumeAvatar,
-RESUME_TEMPLATES,SECTION_TEMPLATES,TEMPLATE_ACCENTS,
-TEMPLATE_VARIANTS
+RESUME_TEMPLATES,SECTION_TEMPLATES
 } from '../data.ts';
-import { runChecks } from '../lib/ai-check.ts';
 import { CHINA_MAJOR_OPTIONS,CHINA_SCHOOL_OPTIONS } from '../lib/education-options.ts';
-import { A4_RATIO,getSmartPageCuts } from '../lib/pagination.ts';
 import { navigate } from '../lib/router.ts';
 import { generateShareUrl } from '../lib/share.ts';
 import { getResume,saveResume } from '../lib/storage.ts';
@@ -37,6 +39,14 @@ import { useEditorHistory } from '../lib/use-editor-history.ts';
 import { cn } from '../lib/utils.ts';
 import { errorMessage,isEditorDocument } from '../lib/validation.ts';
 import type { EditorDocument,Resume,ResumeItem as ResumeItemData,ResumeProfile,ResumeSection as ResumeSectionData,ResumeSettings,SectionType,Setter,Translate } from '../types.ts';
+
+import { EditorModes, ResumeCheckPanel, ResumeSharePanel } from '../components/EditorWorkspace.tsx';
+import { workspaceText } from '../lib/editor-workspace-copy.ts';
+import { getPaperSize } from '../lib/paper.ts';
+import { downloadPdfSnapshot, downloadPdfSnapshotAsPng } from '../lib/pdf-snapshot.ts';
+import { usePdfDocumentKey, usePdfPreview } from '../lib/use-pdf-preview.ts';
+import { getPdfFontKey } from '../lib/pdf-fonts.ts';
+const PdfResumePreview = lazy(() => import('../components/PdfResumePreview.tsx'));
 
 const iconMap: Record<string, import("lucide-react").LucideIcon> = {
   BadgeCheck, BriefcaseBusiness, FileText, GraduationCap,
@@ -48,13 +58,12 @@ const uid = () => crypto.randomUUID();
 
 const QUICK_SECTION_TYPES: SectionType[] = ['summary', 'education', 'work', 'project', 'awards', 'skills'];
 const EXPORT_TYPE_LABELS: Record<string,string> = {
+  docx: 'Word',
   pdf: 'PDF',
   png: 'Image',
   json: 'JSON backup',
 };
 const PROFILE_REQUIRED_FIELDS: (keyof ResumeProfile)[] = ['name', 'headline', 'phone', 'email', 'city'];
-const DEFAULT_A4_WIDTH_PX = 794;
-const DEFAULT_A4_HEIGHT_PX = Math.round(DEFAULT_A4_WIDTH_PX * A4_RATIO);
 const FONT_OPTION_VALUES = new Set(FONT_OPTIONS.map((font) => font.value));
 const DEGREE_OPTIONS: Record<string,string[]> = {
   en: ['High School Diploma', 'Associate Degree', 'Bachelor’s Degree', 'Master’s Degree', 'Doctorate', 'MBA', 'EMBA'],
@@ -299,117 +308,10 @@ function getResumeStats(resume: Resume) {
   return { profileDone, visibleSections, itemCount, filledItems, progress };
 }
 
-const waitForLayout = (targetWindow: Window = window) => new Promise<void>((resolve) => {
-  targetWindow.requestAnimationFrame(() => targetWindow.requestAnimationFrame(() => resolve()));
-});
-
-function copyDocumentStyles(targetDocument: Document) {
-  const loadPromises: Promise<void>[] = [];
-  const sourceNodes = document.querySelectorAll<HTMLLinkElement | HTMLStyleElement>('link[rel="stylesheet"], style');
-
-  sourceNodes.forEach((node) => {
-    const copy = targetDocument.importNode(node, true);
-    if (copy.tagName === 'LINK') {
-      (copy as HTMLLinkElement).href = (node as HTMLLinkElement).href;
-      loadPromises.push(new Promise<void>((resolve) => {
-        copy.addEventListener('load', () => resolve(), { once: true });
-        copy.addEventListener('error', () => resolve(), { once: true });
-      }));
-    }
-    targetDocument.head.appendChild(copy);
-  });
-
-  const overrides = targetDocument.createElement('style');
-  overrides.textContent = `
-    html, body {
-      width: 210mm;
-      min-height: 297mm;
-      margin: 0;
-      background: #fff;
-    }
-    body {
-      overflow: visible;
-    }
-    .resume-paper {
-      width: 210mm !important;
-      min-height: 297mm !important;
-      margin: 0 !important;
-      transform: none !important;
-      box-shadow: none !important;
-      border-radius: 0 !important;
-    }
-  `;
-  targetDocument.head.appendChild(overrides);
-
-  return Promise.all(loadPromises);
-}
-
-async function createExportSurface(sourceNode: HTMLElement) {
-  const frame = document.createElement('iframe');
-  frame.setAttribute('aria-hidden', 'true');
-  frame.tabIndex = -1;
-  frame.style.position = 'fixed';
-  frame.style.left = '-10000px';
-  frame.style.top = '0';
-  frame.style.width = '210mm';
-  frame.style.height = '297mm';
-  frame.style.border = '0';
-  frame.style.pointerEvents = 'none';
-  document.body.appendChild(frame);
-
-  const doc = frame.contentDocument;
-  if (!doc) {
-    frame.remove();
-    throw new Error('EXPORT_FRAME_UNAVAILABLE');
-  }
-
-  doc.open();
-  doc.write('<!doctype html><html><head><meta charset="utf-8"></head><body></body></html>');
-  doc.close();
-
-  await copyDocumentStyles(doc);
-  const clone = doc.importNode(sourceNode, true);
-  clone.style.setProperty('--preview-scale', '1');
-  clone.style.width = '210mm';
-  clone.style.minHeight = '297mm';
-  clone.style.transform = 'none';
-  clone.style.boxShadow = 'none';
-  clone.style.borderRadius = '0';
-  doc.body.appendChild(clone);
-
-  const imgs = clone.querySelectorAll('img');
-  await Promise.all([...imgs].map((img) => {
-    if (!img.src || img.src.startsWith('data:')) return Promise.resolve();
-    return new Promise<void>((resolve) => {
-      const src = img.src;
-      const cvs = document.createElement('canvas');
-      const tempImg = new Image();
-      tempImg.crossOrigin = 'anonymous';
-      tempImg.onload = () => {
-        cvs.width = tempImg.naturalWidth || 120;
-        cvs.height = tempImg.naturalHeight || 160;
-        cvs.getContext('2d')!.drawImage(tempImg, 0, 0);
-        try { img.src = cvs.toDataURL('image/png'); } catch {}
-        resolve();
-      };
-      tempImg.onerror = () => resolve();
-      tempImg.src = src;
-    });
-  }));
-
-  await doc.fonts?.ready;
-  await waitForLayout(frame.contentWindow || window);
-
-  return {
-    node: clone,
-    destroy: () => frame.remove()
-  };
-}
-
 export default function Editor({ resumeId }: {resumeId:string}) {
   const { lang, t } = useTheme();
   const { resume, settings, setResume, setSettings, history, canUndo, canRedo } = useEditorHistory({ resume: null, settings: DEFAULT_SETTINGS }, resumeId);
-  const [locationRequest, setLocationRequest] = useState<{id:string}|null>(null);
+  const [locationRequest, setLocationRequest] = useState<{id:string;field?:string}|null>(null);
   const [deleteNotice, setDeleteNotice] = useState<{resume:Resume|null;settings:ResumeSettings}|null>(null);
   const editorRoot = useRef<HTMLDivElement | null>(null);
   const [activeView, setActiveView] = useState('edit');
@@ -420,13 +322,32 @@ export default function Editor({ resumeId }: {resumeId:string}) {
   const [activeItemId, setActiveItemId] = useState<string|null>(null);
   const [savedAt, setSavedAt] = useState('Just now');
   const [shareUrl, setShareUrl] = useState('');
-  const [checkResult, setCheckResult] = useState<ReturnType<typeof runChecks>|null>(null);
   const [tailorSnapshot, setTailorSnapshot] = useState<EditorDocument|null>(null);
   const [loadError, setLoadError] = useState(false);
   const [loadAttempt, setLoadAttempt] = useState(0);
   const paperRef = useRef<HTMLElement | null>(null);
   const exportMenuRef = useRef<HTMLDivElement | null>(null);
   const previousLangRef = useRef<string | null>(null);
+  const [previewOnly, setPreviewOnly] = useState(false);
+  const pdfKey = usePdfDocumentKey(resume, settings, lang);
+  const pdfPreview = usePdfPreview(paperRef, pdfKey);
+  const latestDocumentKey = useRef(pdfKey);
+  latestDocumentKey.current = pdfKey;
+  const selectView = (view: string) => { setActiveView(view); setPreviewOnly(false); };
+  useEffect(() => { setShareUrl(''); }, [pdfKey]);
+  useEffect(() => {
+    const switchMode = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement;
+      if (event.altKey || event.ctrlKey || event.metaKey || event.repeat || target?.closest('input, textarea, select, [contenteditable="true"], [role="dialog"]')) return;
+      const view = ['edit', 'template', 'check', 'share'][Number(event.key) - 1];
+      if (!view || !/^[1-4]$/.test(event.key)) return;
+      event.preventDefault(); setActiveView(view); setPreviewOnly(false);
+      document.getElementById(`editor-tab-${view}`)?.focus();
+    };
+    document.addEventListener('keydown', switchMode);
+    return () => document.removeEventListener('keydown', switchMode);
+  }, []);
+
 
   useEffect(() => {
     setLoadError(false);
@@ -574,9 +495,13 @@ export default function Editor({ resumeId }: {resumeId:string}) {
     const node = [...(editorRoot.current?.querySelectorAll<HTMLElement>('[data-editor-target]') || [])]
       .find((element) => element.dataset.editorTarget === locationRequest.id);
     if (!node) return;
-    if (node instanceof HTMLDetailsElement) node.open = true;
+    for (let parent: HTMLElement | null = node; parent && parent !== editorRoot.current; parent = parent.parentElement) {
+      if (parent instanceof HTMLDetailsElement) parent.open = true;
+    }
+    const sectionDetails = node.querySelector('details');
+    if (node.dataset.editorTarget?.startsWith('section:') && sectionDetails) sectionDetails.open = true;
     node.scrollIntoView({ block: 'center', behavior: 'auto' });
-    const field = node.querySelector<HTMLElement>('input:not([type="file"]), textarea, [contenteditable="true"]') || node.querySelector('summary');
+    const field = (locationRequest.field ? node.querySelector<HTMLElement>(`[aria-label="${CSS.escape(t(locationRequest.field))}"]`) : null) || node.querySelector<HTMLElement>('input:not([type="file"]), textarea, [contenteditable="true"]') || node.querySelector('summary');
     field?.focus({ preventScroll: true });
   }, [locationRequest, activeView]);
 
@@ -585,10 +510,11 @@ export default function Editor({ resumeId }: {resumeId:string}) {
     settings: { ...current.settings, titleMode: 'custom', titleKind: 'custom' },
   }) : current, 'title');
 
-  const locateFromPreview = (id: string) => {
+  const locateFromPreview = (id: string, field?: string) => {
     setActiveItemId(id);
     setActiveView('edit');
-    setLocationRequest({ id });
+    setPreviewOnly(false);
+    setLocationRequest({ id, field });
   };
 
   if (!resume && loadError) return (
@@ -619,8 +545,8 @@ export default function Editor({ resumeId }: {resumeId:string}) {
   const updateProfile = (field: keyof ResumeProfile, value: string) => updateResume((d) => { d.profile[field] = value; }, `profile:${field}`);
   const updateSection = (sectionId: string, patch: Partial<ResumeSectionData>) => updateResume((d) => { const s = d.sections.find((x) => x.id === sectionId); if (s) Object.assign(s, patch); }, Object.keys(patch).length === 1 && patch.label !== undefined ? `section:${sectionId}:label` : null);
   const updateItem = (sectionId: string, itemId: string, patch: Partial<ResumeItemData>) => updateResume((d) => { const s = d.sections.find((x) => x.id === sectionId); const item = s?.items.find((x) => x.id === itemId); if (item) Object.assign(item, patch); }, `item:${itemId}:${Object.keys(patch).sort().join()}`);
-  const addSection = (type: SectionType = 'custom') => { const ns = { id: uid(), type, label: getSectionCopy(type, lang).label, visible: true, items: [createSectionItem(type, lang)] }; updateResume((d) => { d.sections.push(ns); }); setActiveItemId(ns.items[0].id); };
-  const addItem = (section: ResumeSectionData) => { const item = createSectionItem(section.type, lang); updateResume((d) => { d.sections.find((x) => x.id === section.id)?.items.push(item); }); setActiveItemId(item.id); };
+  const addSection = (type: SectionType = 'custom') => { const ns = { id: uid(), type, label: getSectionCopy(type, lang).label, visible: true, items: [createSectionItem(type, lang)] }; updateResume((d) => { d.sections.push(ns); }); setActiveItemId(ns.items[0].id); return ns.items[0].id; };
+  const addItem = (section: ResumeSectionData) => { const item = createSectionItem(section.type, lang); updateResume((d) => { d.sections.find((x) => x.id === section.id)?.items.push(item); }); setActiveItemId(item.id); return item.id; };
   const deleteSection = (id: string) => { updateResume((d) => { d.sections = d.sections.filter((x) => x.id !== id); }); setDeleteNotice(history.getSnapshot().present); };
   const deleteItem = (sId: string, iId: string) => { updateResume((d) => { const s = d.sections.find((x) => x.id === sId); if (s) s.items = s.items.filter((x) => x.id !== iId); }); setDeleteNotice(history.getSnapshot().present); };
   const moveSection = (id: string, dir: number) => updateResume((d) => { const i = d.sections.findIndex((x) => x.id === id); const t = i + dir; if (i < 0 || t < 0 || t >= d.sections.length) return; const [s] = d.sections.splice(i, 1); d.sections.splice(t, 0, s); });
@@ -631,54 +557,60 @@ export default function Editor({ resumeId }: {resumeId:string}) {
     setExportFeedback(null);
     setIsExporting(type); setExportOpen(false);
     const base = resume.title || resume.profile.name || 'resume';
-    const node = paperRef.current;
     try {
-      const { exportResumeAsDomVectorPdf, exportResumeAsJson, exportResumeAsPng } = await import('../exporters.ts');
-      if (type === 'json') {
+      if (type === 'pdf' || type === 'png') {
+        const snapshot = await pdfPreview.getSnapshot();
+        if (type === 'pdf') downloadPdfSnapshot(snapshot, `${base}.pdf`);
+        else await downloadPdfSnapshotAsPng(snapshot, `${base}.png`);
+      } else if (type === 'docx') {
+        const { exportResumeAsDocx } = await import('../lib/docx-export.ts');
+        await exportResumeAsDocx({ resume, settings }, `${base}.docx`, lang);
+      } else if (type === 'json') {
+        const { exportResumeAsJson } = await import('../exporters.ts');
         exportResumeAsJson(resume, settings, `${base}.json`);
       } else {
-        const surface = await createExportSurface(node);
-        try {
-          if (type === 'pdf') await exportResumeAsDomVectorPdf(surface.node, `${base}.pdf`);
-          if (type === 'png') await exportResumeAsPng(surface.node, `${base}.png`);
-        } finally {
-          surface.destroy();
-        }
+        throw new Error('UNSUPPORTED_EXPORT_FORMAT');
       }
       setExportFeedback({
         type: 'success',
         message: t('{type} is ready', { type: t(EXPORT_TYPE_LABELS[type] || 'File') }),
         detail: t("If you don't see a save prompt, check your browser's download settings."),
       });
-    } catch {
+    } catch (error) {
       setExportFeedback({
         type: 'error',
         message: t('{type} export failed', { type: t(EXPORT_TYPE_LABELS[type] || 'File') }),
-        detail: t('Try again. Your resume content is still safe in the editor.'),
+        detail: error instanceof Error && error.message === 'PREVIEW_CHANGED' ? workspaceText(lang, 'changed') : t('Try again. Your resume content is still safe in the editor.'),
       });
     } finally { setIsExporting(''); }
   };
 
-  const handleShare = async () => { const url = await generateShareUrl(resume, settings); setShareUrl(url); try { await navigator.clipboard.writeText(url); } catch {} };
-  const handleCheck = () => setCheckResult(runChecks(resume, t));
+  const handleShare = async () => {
+    const key = pdfKey;
+    const url = await generateShareUrl(resume, settings);
+    if (key !== latestDocumentKey.current) throw new Error('PREVIEW_CHANGED');
+    setShareUrl(url);
+    try { await navigator.clipboard.writeText(url); return true; } catch { return false; }
+  };
+  const handleCheck = () => selectView('check');
   return (
-    <div ref={editorRoot} className="flex h-screen flex-col overflow-hidden bg-background">
+    <div ref={editorRoot} className="editor-root flex h-screen flex-col overflow-hidden bg-background">
       {deleteNotice === history.getSnapshot().present && canUndo && <div role="status" className="fixed bottom-5 left-1/2 z-40 flex -translate-x-1/2 items-center gap-3 rounded-lg border border-border bg-card p-3 shadow-lg">
         <span className="text-sm">{t('Deleted')}</span><Button variant="outline" size="sm" onClick={() => { history.undo(); setDeleteNotice(null); }}>{t('Undo')}</Button>
       </div>}
       <TopBar
+        historyControl={<ResumeHistory resumeId={resumeId} document={history.getSnapshot().present as EditorDocument} onRestore={(document) => history.commit(document)} />}
         canUndo={canUndo} canRedo={canRedo} onUndo={() => { history.undo(); setDeleteNotice(null); }} onRedo={history.redo}
-        resume={resume} activeView={activeView} onActiveView={setActiveView}
+        resume={resume}
         savedAt={savedAt} dirty={dirty} saving={saving} saveError={saveError} onSave={handleSave}
         isExporting={isExporting} exportOpen={exportOpen}
         exportMenuRef={exportMenuRef}
-        fontFamily={settings.fontFamily}
-        onFontFamily={(fontFamily) => setSettings((current) => ({ ...current, fontFamily }))}
         onResumeTitle={updateTitle}
         onManager={() => setManagerOpen(true)}
         onExportToggle={() => setExportOpen((v) => !v)}
-        onExport={handleExport} onShare={handleShare} onCheck={handleCheck}
+        onExport={handleExport}
       />
+      <EditorModes activeView={activeView} onActiveView={selectView} previewOnly={previewOnly} onPreview={() => setPreviewOnly(value => !value)} onTailor={() => setTailorSnapshot({ resume: clone(resume), settings: clone(settings) })} />
       <div className="shrink-0 border-b border-border bg-card px-4 py-1.5 sm:hidden">
         <input className="w-full min-w-0 truncate rounded bg-transparent text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring" aria-label={t('Resume name')} value={resume.title} onChange={(event) => updateTitle(event.target.value)} />
       </div>
@@ -710,95 +642,28 @@ export default function Editor({ resumeId }: {resumeId:string}) {
           </button>
         </div>
       )}
-      <main className={cn(
-        "flex-1 grid min-h-0 overflow-hidden grid-rows-[auto_minmax(0,1fr)] lg:grid-rows-1",
-        activeView === 'preview'
-          ? "grid-cols-1 lg:grid-cols-[64px_minmax(0,1fr)]"
-          : "grid-cols-1 lg:grid-cols-[64px_480px_minmax(0,1fr)]"
-      )}>
-        <SideRail activeView={activeView} onActiveView={setActiveView} onTailor={() => setTailorSnapshot({ resume: clone(resume), settings: clone(settings) })} />
-        <MobileModeBar activeView={activeView} onActiveView={setActiveView} onTailor={() => setTailorSnapshot({ resume: clone(resume), settings: clone(settings) })} />
-        {activeView !== 'preview' && (
-          <div className="light-panel min-h-0 border-r border-zinc-200 bg-white">
-            {activeView === 'template' ? (
-              <TemplateStylePanel resume={resume} settings={settings} onSettings={setSettings} />
-            ) : (
-              <EditorPanel
-                resume={resume} activeItemId={activeItemId}
-                onProfile={updateProfile} onAvatar={handleAvatar}
-                onSection={updateSection} onItem={updateItem}
-                onAddItem={addItem} onAddSection={addSection}
-                onDeleteSection={deleteSection} onDeleteItem={deleteItem}
-                onMoveSection={moveSection} onActiveItem={setActiveItemId}
-                onCheck={handleCheck}
-              />
-            )}
-          </div>
-        )}
-        <PreviewStage className={activeView === 'preview' ? "flex" : "hidden lg:flex"}>
-          {({ scale }) => <PaginatedResumePreview resume={resume} settings={settings} refNode={paperRef} scale={scale} activeItemId={activeItemId} onLocate={locateFromPreview} />}
-        </PreviewStage>
+      <main className="grid min-h-0 min-w-0 flex-1 grid-cols-1 overflow-hidden lg:grid-cols-[400px_minmax(0,1fr)]">
+        <div id="editor-workspace-panel" role="tabpanel" aria-labelledby={`editor-tab-${activeView}`} className={cn('editor-workspace light-panel min-h-0 min-w-0 border-r border-border bg-card', previewOnly ? 'hidden lg:block' : 'block')}>
+          {activeView === 'template' ? <TemplateStylePanel resume={resume} settings={settings} onSettings={setSettings} />
+            : activeView === 'check' ? <ResumeCheckPanel resume={resume} onLocate={locateFromPreview} onAddSection={type => { const section = resume.sections.find(value => value.type === type); if (section) { updateSection(section.id, { visible: true }); locateFromPreview(section.items[0]?.id || addItem(section)); } else locateFromPreview(addSection(type)); }} />
+            : activeView === 'share' ? <ResumeSharePanel key={pdfKey} url={shareUrl} onShare={handleShare} onExport={handleExport} isExporting={isExporting} />
+            : <EditorPanel resume={resume} activeItemId={activeItemId} onProfile={updateProfile} onAvatar={handleAvatar} onSection={updateSection} onItem={updateItem} onAddItem={section => locateFromPreview(addItem(section))} onAddSection={type => locateFromPreview(addSection(type))} onDeleteSection={deleteSection} onDeleteItem={deleteItem} onMoveSection={moveSection} onActiveItem={setActiveItemId} onCheck={handleCheck} />}
+        </div>
+        <div className="resume-pagination-measure" aria-hidden="true"><ResumePreview resume={resume} settings={settings} refNode={paperRef} /></div>
+        <Suspense fallback={<div className={cn('min-h-0 items-center justify-center bg-muted/55', previewOnly ? 'flex' : 'hidden lg:flex')}><Loader2 className="animate-spin" /></div>}>
+          <PdfResumePreview snapshot={pdfPreview.snapshot} pending={pdfPreview.pending} error={pdfPreview.error} onRetry={pdfPreview.retry} activeItemId={activeItemId} onLocate={locateFromPreview} className={previewOnly ? 'flex' : 'hidden lg:flex'} />
+        </Suspense>
       </main>
       {managerOpen && <ModuleManager resume={resume} onClose={() => setManagerOpen(false)} onAddSection={addSection} onSection={updateSection} onMoveSection={moveSection} onDeleteSection={deleteSection} />}
-      {shareUrl && <ShareModal url={shareUrl} onClose={() => setShareUrl('')} />}
-      {checkResult && <CheckPanel result={checkResult} onClose={() => setCheckResult(null)} />}
       {tailorSnapshot && <TailorResumeDialog key={resumeId} snapshot={tailorSnapshot} currentResume={resume} onClose={() => setTailorSnapshot(null)} />}
     </div>
   );
 }
 
-function ShareModal({ url, onClose }: {url:string;onClose?:() => void}) {
-  const { t } = useTheme();
+function TopBar({ historyControl, canUndo, canRedo, onUndo, onRedo, resume, savedAt, dirty, saving, saveError, onSave, isExporting, exportOpen, exportMenuRef, onResumeTitle, onManager, onExportToggle, onExport }: {historyControl:React.ReactNode;canUndo:boolean;canRedo:boolean;onUndo:() => void;onRedo:() => void;resume:Resume;savedAt:string;dirty:boolean;saving:boolean;saveError:string;onSave:() => void;isExporting:string;exportOpen:boolean;exportMenuRef:React.RefObject<HTMLDivElement>;onResumeTitle:(title:string) => void;onManager:() => void;onExportToggle:() => void;onExport:(type:string) => void;}) {
+  const { lang, t } = useTheme();
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-foreground/30 px-5" onClick={onClose}>
-      <div className="flex w-full max-w-md flex-col gap-4 rounded-lg border border-border bg-card p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
-        <h3 className="text-base font-semibold text-foreground">{t('Share link created')}</h3>
-        <p className="text-sm text-muted-foreground">{t('The link was copied to your clipboard. Anyone with it can view the resume preview.')}</p>
-        <input readOnly value={url} onFocus={(e) => e.target.select()} className="w-full px-3 py-2 bg-muted border border-border rounded-md text-xs text-foreground" />
-        <Button className="w-full" onClick={onClose}>{t('Close')}</Button>
-      </div>
-    </div>
-  );
-}
-
-function CheckPanel({ result, onClose }: {result:ReturnType<typeof runChecks>;onClose?:() => void}) {
-  const { t } = useTheme();
-  const typeLabel = { error: t('Error'), warning: t('Warning'), suggestion: t('Suggestion') };
-  const typeColor: Record<string, React.ComponentProps<typeof Badge>["variant"]> = { error: 'destructive', warning: 'warning', suggestion: 'secondary' };
-  return (
-    <div className="fixed top-0 right-0 h-full w-80 bg-card border-l border-border z-40 flex flex-col overflow-hidden">
-      <header className="flex items-center justify-between px-4 py-3 border-b border-border">
-        <div className="flex items-center gap-2">
-          <strong className="text-sm text-foreground">{t('Resume check')}</strong>
-          <Badge variant="outline">{t('{score} points', { score: result.score })}</Badge>
-        </div>
-        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onClose}><X size={16} /></Button>
-      </header>
-      <div className="flex flex-1 flex-col gap-2 overflow-y-auto p-3">
-        {result.results.length === 0 && <p className="text-sm text-muted-foreground text-center py-8">{t('Great—no issues found!')}</p>}
-        {result.results.map((r, i) => (
-          <div key={i} className="flex flex-col gap-1 rounded-lg bg-muted/50 p-3">
-            <div className="flex items-center gap-2">
-              <Badge variant={typeColor[r.type]}>{typeLabel[r.type]}</Badge>
-              <span className="text-xs text-muted-foreground">{r.category}</span>
-            </div>
-            <p className="text-xs text-foreground leading-relaxed">{r.message}</p>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function TopBar({ canUndo, canRedo, onUndo, onRedo, resume, activeView, onActiveView, savedAt, dirty, saving, saveError, onSave, isExporting, exportOpen, exportMenuRef, fontFamily, onFontFamily, onResumeTitle, onManager, onExportToggle, onExport, onShare, onCheck }: {canUndo:boolean;canRedo:boolean;onUndo:() => void;onRedo:() => void;resume:Resume;activeView:string;onActiveView:(view:string) => void;savedAt:string;dirty:boolean;saving:boolean;saveError:string;onSave:() => void;isExporting:string;exportOpen:boolean;exportMenuRef:React.RefObject<HTMLDivElement>;fontFamily:string;onFontFamily:(font:string) => void;onResumeTitle:(title:string) => void;onManager:() => void;onExportToggle:() => void;onExport:(type:string) => void;onShare:() => void;onCheck:() => void}) {
-  const { t } = useTheme();
-  const modes = [
-    { id: 'edit', label: 'Edit', icon: PencilLine },
-    { id: 'template', label: 'Style', icon: LayoutTemplate },
-    { id: 'preview', label: 'Preview', icon: Eye },
-  ];
-  return (
-    <header className="flex h-14 shrink-0 items-center gap-3 border-b border-border bg-card px-3 sm:px-4">
+    <header className="editor-topbar flex h-14 shrink-0 items-center gap-3 border-b border-border bg-card px-3 sm:px-4">
       <div className="flex min-w-0 items-center gap-2">
         <Button variant="ghost" size="sm" className="shrink-0" onClick={() => navigate('/dashboard')} aria-label={t('Back to My Resumes')}>
           <Home size={14} /> <span className="hidden sm:inline">{t('My Resumes')}</span>
@@ -827,38 +692,11 @@ function TopBar({ canUndo, canRedo, onUndo, onRedo, resume, activeView, onActive
         <Button variant="ghost" size="icon-sm" disabled={!canUndo} onMouseDown={(event) => event.preventDefault()} onClick={onUndo} aria-label={t('Undo')} title={t('Undo') + ' (Ctrl/⌘ Z)'}><Undo2 /></Button>
         <Button variant="ghost" size="icon-sm" disabled={!canRedo} onMouseDown={(event) => event.preventDefault()} onClick={onRedo} aria-label={t('Redo')} title={t('Redo') + ' (Ctrl/⌘ Shift Z)'}><Redo2 /></Button>
       </div>
-      <FontPicker
-        value={fontFamily}
-        onChange={onFontFamily}
-        className="hidden w-32 shrink-0 xl:block"
-        selectClassName="py-1.5"
-        ariaLabel={t('Top bar font')}
-      />
 
-      <div className="ml-auto hidden items-center rounded-md border border-border bg-background p-0.5 lg:flex">
-        {modes.map((mode) => {
-          const Icon = mode.icon;
-          return (
-            <button
-              key={mode.id}
-              className={cn(
-                "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
-                activeView === mode.id ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
-              )}
-              onClick={() => onActiveView(mode.id)}
-            >
-              <Icon size={14} />
-              {t(mode.label)}
-            </button>
-          );
-        })}
-      </div>
-
-      <div className="flex items-center gap-1.5 shrink-0">
+      <div className="ml-auto flex items-center gap-1.5 shrink-0">
+        {historyControl}
         <LanguageMenu />
         <Button variant="outline" size="sm" className="hidden text-xs md:inline-flex" onClick={onManager}>{t('Sections')}</Button>
-        <Button variant="ghost" size="sm" className="hidden text-xs md:inline-flex" onClick={onCheck}><Sparkles size={14} /> {t('Check')}</Button>
-        <Button variant="ghost" size="sm" className="hidden text-xs sm:inline-flex" onClick={onShare}><Share2 size={14} /> {t('Share')}</Button>
         <div className="relative" ref={exportMenuRef}>
           <Button
             size="sm"
@@ -875,6 +713,7 @@ function TopBar({ canUndo, canRedo, onUndo, onRedo, resume, activeView, onActive
           {exportOpen && (
             <div id="resume-export-menu" role="menu" aria-label={t('Choose export format')} className="absolute right-0 top-full z-50 mt-2 w-48 overflow-hidden rounded-lg border border-border bg-popover p-1.5 text-popover-foreground shadow-lg">
               <button role="menuitem" className="flex w-full items-center gap-2 rounded-md px-3 py-2.5 text-left text-xs font-medium transition-colors hover:bg-muted focus:bg-muted focus:outline-none" onClick={() => onExport('pdf')}><FileText size={14} className="text-muted-foreground" /> {t('Export PDF')}</button>
+              <button role="menuitem" className="flex w-full items-center gap-2 rounded-md px-3 py-2.5 text-left text-xs font-medium transition-colors hover:bg-muted focus:bg-muted focus:outline-none" onClick={() => onExport('docx')}><FileText size={14} className="text-muted-foreground" /> {transferText(lang, 'word')}</button>
               <button role="menuitem" className="flex w-full items-center gap-2 rounded-md px-3 py-2.5 text-left text-xs font-medium transition-colors hover:bg-muted focus:bg-muted focus:outline-none" onClick={() => onExport('png')}><ImageDown size={14} className="text-muted-foreground" /> {t('Export image')}</button>
               <div className="my-1 h-px bg-border" />
               <button role="menuitem" className="flex w-full items-center gap-2 rounded-md px-3 py-2.5 text-left text-xs font-medium transition-colors hover:bg-muted focus:bg-muted focus:outline-none" onClick={() => onExport('json')}><FileJson size={14} className="text-muted-foreground" /> {t('Back up JSON')}</button>
@@ -887,174 +726,55 @@ function TopBar({ canUndo, canRedo, onUndo, onRedo, resume, activeView, onActive
 }
 
 function FontPicker({ value, onChange, className, selectClassName, ariaLabel = 'Font' }: {value:string | undefined;onChange:(value:string) => void;className?:string;selectClassName?:string;ariaLabel?:string}) {
-  const { lang } = useTheme();
   return (
     <label className={cn("flex flex-col gap-1.5", className)}>
       <span className="sr-only">{ariaLabel}</span>
       <select
         className={cn("w-full rounded-md border border-zinc-200 bg-white px-2.5 py-2 text-xs text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15", selectClassName)}
-        value={value}
+        value={getPdfFontKey(value) === 'serif' ? 'SimSun' : 'Arial'}
         onChange={(e) => onChange(e.target.value)}
         aria-label={ariaLabel}
       >
-        {FONT_OPTIONS.map((font) => (
-          <option key={font.value} value={font.value}>{font.label[lang] || font.label.en}</option>
-        ))}
+        <option value="Arial">Noto Sans CJK SC</option>
+        <option value="SimSun">Noto Serif CJK SC</option>
       </select>
     </label>
   );
 }
 
-function SideRail({ activeView, onActiveView, onTailor }: {activeView:string;onActiveView:(view:string) => void;onTailor:() => void}) {
-  const { t } = useTheme();
-  const items = [
-    { id: 'edit', label: 'Edit', icon: PencilLine },
-    { id: 'template', label: 'Style', icon: LayoutTemplate },
-    { id: 'preview', label: 'Preview', icon: Eye }
-  ];
-  return (
-    <nav className="hidden flex-col items-center gap-2 border-r border-border bg-card py-4 lg:flex" aria-label={t('Editor navigation')}>
-      <button onClick={onTailor} title={t('Tailor to a job')} aria-label={t('Tailor to a job')} className="flex w-12 flex-col items-center gap-1 rounded-lg bg-primary/10 px-1 py-2.5 text-[10px] text-primary transition-colors hover:bg-primary/20"><Sparkles size={18} /><span>{t('Tailor')}</span></button>
-      {items.map((item) => {
-        const Icon = item.icon;
-        return (
-          <button
-            key={item.id}
-            className={cn(
-              "flex flex-col items-center gap-1 w-12 py-2.5 rounded-lg text-[10px] transition-colors",
-              activeView === item.id ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground"
-            )}
-            onClick={() => onActiveView(item.id)}
-          >
-            <Icon size={18} /><span>{t(item.label)}</span>
-          </button>
-        );
-      })}
-    </nav>
-  );
-}
-
-function MobileModeBar({ activeView, onActiveView, onTailor }: {activeView:string;onActiveView:(view:string) => void;onTailor:() => void}) {
-  const { t } = useTheme();
-  const items = [
-    { id: 'edit', label: 'Edit', icon: PencilLine },
-    { id: 'template', label: 'Style', icon: LayoutTemplate },
-    { id: 'preview', label: 'Preview', icon: Eye }
-  ];
-  return (
-    <nav className="flex gap-1 border-b border-border bg-card p-2 lg:hidden" aria-label={t('Editor views')}>
-      <button onClick={onTailor} aria-label={t('Tailor to a job')} className="inline-flex items-center gap-1.5 rounded-md bg-primary/10 px-3 py-2 text-xs text-primary"><Sparkles size={14} />{t('Tailor')}</button>
-      {items.map((item) => {
-        const Icon = item.icon;
-        return (
-          <button
-            key={item.id}
-            className={cn(
-              "flex flex-1 items-center justify-center gap-1.5 rounded-md px-3 py-2 text-xs font-medium",
-              activeView === item.id ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"
-            )}
-            onClick={() => onActiveView(item.id)}
-          >
-            <Icon size={14} />
-            {t(item.label)}
-          </button>
-        );
-      })}
-    </nav>
-  );
-}
-
 function EditorPanel({ resume, activeItemId, onProfile, onAvatar, onSection, onItem, onAddItem, onAddSection, onDeleteSection, onDeleteItem, onMoveSection, onActiveItem, onCheck }: {resume:Resume;activeItemId?:string | null;onProfile:(field:keyof ResumeProfile,value:string) => void;onAvatar:(file:File | undefined) => void;onSection:(id:string,patch:Partial<ResumeSectionData>) => void;onItem:(sectionId:string,itemId:string,patch:Partial<ResumeItemData>) => void;onAddItem:(section:ResumeSectionData) => void;onAddSection:(type?:SectionType) => void;onDeleteSection:(id:string) => void;onDeleteItem:(sectionId:string,itemId:string) => void;onMoveSection:(id:string,direction:number) => void;onActiveItem:(id:string) => void;onCheck:() => void}) {
-  const { t } = useTheme();
+  const { lang, t } = useTheme();
   const stats = getResumeStats(resume);
   return (
-    <section className="flex h-full min-w-0 flex-col gap-4 overflow-y-auto overflow-x-hidden p-4" aria-label={t('Resume editor')}>
+    <section className="editor-content-panel" aria-label={t('Resume editor')}>
+      <div className="editor-content-heading"><h2>{workspaceText(lang, 'content')}</h2><p>{visualText(lang, 'contentHelp')}</p></div>
       <EditorOverview stats={stats} onCheck={onCheck} />
-      <QuickSections resume={resume} onAddSection={onAddSection} />
       <div data-editor-target="profile" onFocusCapture={() => onActiveItem("profile")}><ProfileEditor profile={resume.profile} onProfile={onProfile} onAvatar={onAvatar} /></div>
       {resume.sections.map((section, index) => (
         <SectionEditor key={section.id} section={section} index={index} total={resume.sections.length}
           activeItemId={activeItemId} onSection={onSection} onItem={onItem} onAddItem={onAddItem}
           onDeleteSection={onDeleteSection} onDeleteItem={onDeleteItem} onMoveSection={onMoveSection} onActiveItem={onActiveItem} />
       ))}
-      <Button variant="outline" className="w-full" onClick={() => onAddSection('custom')}>
-        <Plus size={15} /> {t('Add custom section')}
-      </Button>
+      <QuickSections resume={resume} onAddSection={onAddSection} />
     </section>
   );
 }
 
 function EditorOverview({ stats, onCheck }: {stats:ReturnType<typeof getResumeStats>;onCheck:() => void}) {
   const { t } = useTheme();
-  return (
-    <section className="rounded-lg border border-zinc-200 bg-white/50 p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <div className="flex items-center gap-2">
-            <Gauge size={15} className="text-primary" />
-            <h2 className="text-sm font-semibold text-foreground">{t('Resume completeness')}</h2>
-          </div>
-          <p className="mt-1 text-xs text-muted-foreground">{t('Complete your profile first, then add experience and skills.')}</p>
-        </div>
-        <strong className="text-lg text-foreground">{stats.progress}%</strong>
-      </div>
-      <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-zinc-200">
-        <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${stats.progress}%` }} />
-      </div>
-      <div className="mt-3 grid grid-cols-3 divide-x divide-zinc-200 rounded-md border border-zinc-200 bg-white text-xs">
-        <div className="px-2 py-2">
-          <strong className="block text-foreground">{stats.profileDone}/5</strong>
-          <span className="text-muted-foreground">{t('Profile')}</span>
-        </div>
-        <div className="px-2 py-2">
-          <strong className="block text-foreground">{stats.visibleSections.length}</strong>
-          <span className="text-muted-foreground">{t('Sections')}</span>
-        </div>
-        <div className="px-2 py-2">
-          <strong className="block text-foreground">{stats.filledItems}/{Math.max(stats.itemCount, 1)}</strong>
-          <span className="text-muted-foreground">{t('Content')}</span>
-        </div>
-      </div>
-      <Button size="sm" variant="outline" className="mt-3 w-full text-xs" onClick={onCheck}>
-        <Sparkles size={13} /> {t('Check writing and keywords')}
-      </Button>
-    </section>
-  );
+  return <div className="editor-overview">
+    <div className="editor-overview-line"><span>{t('Resume completeness')}</span><button type="button" onClick={onCheck} title={t('Check writing and keywords')}><strong>{stats.progress}%</strong></button></div>
+    <div className="editor-overview-track"><span style={{ width: stats.progress + '%' }} /></div>
+  </div>;
 }
 
 function QuickSections({ resume, onAddSection }: {resume:Resume;onAddSection:(type?:SectionType) => void}) {
   const { lang, t } = useTheme();
-  const existing = new Set(resume.sections.map((section) => section.type));
-  return (
-    <section className="rounded-lg border border-zinc-200 bg-white p-4">
-      <div className="flex items-center justify-between gap-2">
-        <h2 className="text-sm font-semibold text-foreground">{t('Quick add')}</h2>
-        <span className="text-[11px] text-muted-foreground">{t('Common resume sections')}</span>
-      </div>
-      <div className="mt-3 grid grid-cols-2 gap-2">
-        {QUICK_SECTION_TYPES.map((type) => {
-          const tpl = SECTION_TEMPLATES[type];
-          const Icon = iconMap[tpl.icon] ?? PlusCircle;
-          const added = existing.has(type);
-          return (
-            <button
-              key={type}
-              className={cn(
-                "flex items-center gap-2 rounded-md border px-2.5 py-2 text-left text-xs transition-colors",
-                added ? "border-zinc-200 bg-muted/40 text-muted-foreground" : "border-zinc-200 bg-white text-foreground hover:border-primary/50 hover:bg-primary/5"
-              )}
-              onClick={() => { if (!added) onAddSection(type); }}
-              disabled={added}
-            >
-              <Icon size={14} className={added ? "text-muted-foreground" : "text-primary"} />
-              <span className="truncate">{getSectionCopy(type, lang).label}</span>
-              {added && <CheckCircle2 size={12} className="ml-auto" />}
-            </button>
-          );
-        })}
-      </div>
-    </section>
-  );
+  const existing = new Set(resume.sections.map(section => section.type));
+  return <details className="editor-quick-add"><summary>{visualText(lang, 'addSection')}</summary><div className="grid grid-cols-2 gap-2">
+    {QUICK_SECTION_TYPES.filter(type => !existing.has(type)).map(type => <Button key={type} variant="outline" onClick={() => onAddSection(type)}>{getSectionCopy(type, lang).label}</Button>)}
+    <Button variant="outline" onClick={() => onAddSection('custom')}><Plus data-icon="inline-start" />{getSectionCopy('custom', lang).label}</Button>
+  </div></details>;
 }
 
 function TemplateStylePanel({ resume, settings, onSettings }: {resume:Resume;settings:ResumeSettings;onSettings:Setter<ResumeSettings>}) {
@@ -1063,8 +783,8 @@ function TemplateStylePanel({ resume, settings, onSettings }: {resume:Resume;set
   const colorPresets = ['#8b63f6', '#2468c9', '#0f766e', '#d97706', '#d94f74', '#374151'];
   const selectedTemplate = RESUME_TEMPLATES.find((template) => template.id === settings.template) ?? RESUME_TEMPLATES[0];
   return (
-    <section className="flex h-full min-w-0 flex-col gap-4 overflow-y-auto overflow-x-hidden bg-white p-4" aria-label={t('Template style')}>
-      <div className="rounded-lg border border-zinc-200 bg-white/50 p-4">
+    <section className="editor-style-panel flex h-full min-w-0 flex-col overflow-y-auto overflow-x-hidden bg-white" aria-label={t('Template style')}>
+      <div className="editor-style-group">
         <div className="flex items-center gap-2">
           <Palette size={15} className="text-primary" />
           <h2 className="text-sm font-semibold text-foreground">{t('Template style')}</h2>
@@ -1076,7 +796,10 @@ function TemplateStylePanel({ resume, settings, onSettings }: {resume:Resume;set
 
       <EditorTemplatePicker resume={resume} settings={settings} onSettings={onSettings} Preview={ResumePreview} />
 
-      <div className="flex flex-col gap-3 rounded-lg border border-zinc-200 bg-white p-4">
+      <div className="editor-style-group flex flex-col gap-3">
+        <label className="flex flex-col gap-2 text-xs text-muted-foreground">{workspaceText(lang, 'paper')}
+          <select aria-label={workspaceText(lang, 'paper')} className="min-h-11 rounded-md border border-border bg-background px-3 text-sm text-foreground" value={settings.paperSize || 'a4'} onChange={event => updateSetting('paperSize', event.target.value as 'a4' | 'letter')}><option value="a4">A4 · 210 × 297 mm</option><option value="letter">US Letter · 8.5 × 11 in</option></select>
+        </label>
         <h3 className="text-sm font-semibold text-foreground">{t('Typography')}</h3>
         <div className="flex flex-col gap-1.5">
           <span className="text-xs text-muted-foreground">{t('Font')}</span>
@@ -1090,7 +813,7 @@ function TemplateStylePanel({ resume, settings, onSettings }: {resume:Resume;set
         </label>
       </div>
 
-      <div className="flex flex-col gap-3 rounded-lg border border-zinc-200 bg-white p-4">
+      <div className="editor-style-group flex flex-col gap-3">
         <h3 className="text-sm font-semibold text-foreground">{t('Accent color')}</h3>
         <div className="flex flex-wrap items-center gap-2">
           {colorPresets.map((c) => (
@@ -1134,76 +857,55 @@ function SettingSlider({ label, value, min, max, step, suffix = '', onChange }: 
 }
 
 function ProfileEditor({ profile, onProfile, onAvatar }: {profile:ResumeProfile;onProfile:(field:keyof ResumeProfile,value:string) => void;onAvatar:(file:File | undefined) => void}) {
-  const { t } = useTheme();
+  const { lang, t } = useTheme();
   const avatarSrc = resolveResumeAvatar(profile.avatar);
-  return (
-    <section className="flex flex-col gap-3 rounded-lg border border-zinc-200 bg-white p-4">
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <FileText size={14} className="text-primary" />
-          <h2 className="text-sm font-semibold text-foreground">{t('Profile information')}</h2>
-        </div>
-        <span className="text-[11px] text-muted-foreground">{t('Photo optional')}</span>
-      </div>
-      <div className="grid grid-cols-[76px_minmax(0,1fr)] gap-3">
-        <label className="grid h-24 w-[72px] shrink-0 cursor-pointer place-items-center overflow-hidden rounded-md border border-border bg-muted hover:ring-2 hover:ring-primary/30">
-          <img src={avatarSrc} alt={t('Profile photo')} className="h-full w-full object-cover" />
-          <input type="file" accept="image/*" className="hidden" onChange={(e) => onAvatar(e.target.files?.[0])} />
-        </label>
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-          <Field label={t('Name')} value={profile.name} onChange={(v) => onProfile('name', v)} />
-          <Field label={t('Target role')} value={profile.headline} onChange={(v) => onProfile('headline', v)} />
-          <Field label={t('Phone')} value={profile.phone} onChange={(v) => onProfile('phone', v)} />
-          <Field label={t('Email')} value={profile.email} onChange={(v) => onProfile('email', v)} />
-          <Field label={t('Personal website')} value={profile.website} onChange={(v) => onProfile('website', v)} />
-          <Field label={t('Current city')} value={profile.city} onChange={(v) => onProfile('city', v)} />
-          <Field label={t('Date of birth')} value={profile.birthday} onChange={(v) => onProfile('birthday', v)} />
-          <Field label={t('Current status')} value={profile.status} onChange={(v) => onProfile('status', v)} />
-        </div>
-      </div>
-    </section>
-  );
+  return <section className="editor-profile">
+    <h2>{t('Profile information')}</h2>
+    <div className="editor-photo-row"><img src={avatarSrc} alt={t('Profile photo')} /><label className="editor-photo-control">{visualText(lang, 'photo')}<input aria-label={visualText(lang, 'photo')} type="file" accept="image/*" onChange={event => onAvatar(event.target.files?.[0])} /></label><span className="text-xs text-muted-foreground">{t('Photo optional')}</span></div>
+    <FieldGroup className="editor-profile-fields">
+      <Field label={t('Name')} value={profile.name} onChange={value => onProfile('name', value)} />
+      <Field label={t('Target role')} value={profile.headline} onChange={value => onProfile('headline', value)} />
+      <Field label={t('Email')} value={profile.email} onChange={value => onProfile('email', value)} />
+      <Field label={t('Phone')} value={profile.phone} onChange={value => onProfile('phone', value)} />
+      <Field label={t('Personal website')} value={profile.website} onChange={value => onProfile('website', value)} />
+      <Field label={t('Current city')} value={profile.city} onChange={value => onProfile('city', value)} />
+    </FieldGroup>
+    <details className="editor-profile-extra"><summary>{t('Additional details')}</summary><FieldGroup className="editor-profile-fields">
+      <Field label={t('Date of birth')} value={profile.birthday} onChange={value => onProfile('birthday', value)} />
+      <Field label={t('Current status')} value={profile.status} onChange={value => onProfile('status', value)} />
+    </FieldGroup></details>
+  </section>;
 }
 
 function SectionEditor({ section, index, total, activeItemId, onSection, onItem, onAddItem, onDeleteSection, onDeleteItem, onMoveSection, onActiveItem }: {section:ResumeSectionData;index:number;total:number;activeItemId?:string | null;onSection:(id:string,patch:Partial<ResumeSectionData>) => void;onItem:(sectionId:string,itemId:string,patch:Partial<ResumeItemData>) => void;onAddItem:(section:ResumeSectionData) => void;onDeleteSection:(id:string) => void;onDeleteItem:(sectionId:string,itemId:string) => void;onMoveSection:(id:string,direction:number) => void;onActiveItem:(id:string) => void}) {
   const { lang, t } = useTheme();
   const tpl = SECTION_TEMPLATES[section.type] ?? SECTION_TEMPLATES.custom;
   const Icon = iconMap[tpl.icon] ?? PlusCircle;
-  return (
-    <section data-editor-target={`section:${section.id}`} onFocusCapture={(event) => { if (!(event.target as Element).closest("details")) onActiveItem(`section:${section.id}`); }} className={cn("flex flex-col gap-3 rounded-lg border border-zinc-200 bg-white p-4", !section.visible && "opacity-60")}>
-      <header className="flex items-center gap-2">
-        <span className="grid h-7 w-7 place-items-center rounded-md bg-primary/10 text-primary">
-          <Icon size={14} />
-        </span>
-        <input className="flex-1 bg-transparent text-sm font-semibold text-foreground border-none focus:outline-none focus:ring-1 focus:ring-ring rounded px-1" value={section.label} onChange={(e) => onSection(section.id, { label: e.target.value })} />
-        <div className="flex items-center gap-0.5">
-          <button className="p-1 rounded hover:bg-muted text-muted-foreground disabled:opacity-30" title={t('Move section up')} onClick={() => onMoveSection(section.id, -1)} disabled={index === 0}><MoveUp size={14} /></button>
-          <button className="p-1 rounded hover:bg-muted text-muted-foreground disabled:opacity-30" title={t('Move section down')} onClick={() => onMoveSection(section.id, 1)} disabled={index === total - 1}><MoveDown size={14} /></button>
-          <button className="p-1 rounded hover:bg-muted text-muted-foreground" title={section.visible ? t('Hide section') : t('Show section')} onClick={() => onSection(section.id, { visible: !section.visible })}><Eye size={14} /></button>
-          <button className="p-1 rounded hover:bg-muted text-destructive" title={t('Delete section')} onClick={() => onDeleteSection(section.id)}><Trash2 size={14} /></button>
-        </div>
-      </header>
-      {section.items.length === 0 && <p className="text-xs text-muted-foreground/60 py-2">{getSectionCopy(section.type, lang).empty}</p>}
-      {section.items.map((item, idx) => (
-        <details key={item.id} data-editor-target={item.id} onFocusCapture={() => onActiveItem(item.id)} className={cn("rounded-md border border-border overflow-hidden", activeItemId === item.id && "border-primary/50")} ref={(el) => { if (el && idx === 0 && !el.dataset.inited) { el.open = true; el.dataset.inited = '1'; } }} onClick={() => onActiveItem(item.id)}>
-          <summary className="flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-muted/50 text-sm">
-            <span className="flex-1 truncate text-foreground">{getItemTitle(section, item, t)}</span>
-            <small className="text-xs text-muted-foreground truncate max-w-[120px]">{getItemMeta(section, item, t)}</small>
-            <span role="button" aria-label={t('Delete entry')} tabIndex={0} className="p-0.5 rounded hover:bg-muted text-muted-foreground hover:text-destructive" onClick={(e) => { e.preventDefault(); e.stopPropagation(); onDeleteItem(section.id, item.id); }} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onDeleteItem(section.id, item.id); } }}><Trash2 size={13} /></span>
-          </summary>
-          <div className="px-3 pb-3 pt-1">
-            <EntryForm section={section} item={item} onItem={(patch) => onItem(section.id, item.id, patch)} />
-          </div>
-        </details>
-      ))}
-      <button className="flex items-center gap-1 text-xs text-primary hover:text-primary/80 py-1" onClick={() => onAddItem(section)}>
-        <Plus size={13} /> {t('Add another {section}', { section: section.label })}
-      </button>
-    </section>
-  );
+  return <section data-editor-target={'section:' + section.id} className={cn('editor-section', !section.visible && 'opacity-60')}>
+    <details ref={node => { if (node && !node.dataset.inited) { node.open = section.type === 'summary'; node.dataset.inited = '1'; } }}>
+      <summary><Icon /><span>{section.label}</span><span className="editor-section-count">{section.items.length}</span><ChevronDown className="section-chevron" /></summary>
+      <div className="editor-section-body">
+        {section.items.length === 0 && <p className="py-2 text-xs text-muted-foreground">{getSectionCopy(section.type, lang).empty}</p>}
+        {tpl.kind === 'text' && section.items.length === 1 ? <div data-editor-target={section.items[0].id} onFocusCapture={() => onActiveItem(section.items[0].id)}><EntryForm hideTitle section={section} item={section.items[0]} onItem={patch => onItem(section.id, section.items[0].id, patch)} /></div> : section.items.map((item, index) => <details key={item.id} data-editor-target={item.id} onFocusCapture={() => onActiveItem(item.id)} className="editor-entry" ref={node => { if (node && !node.dataset.inited) { node.open = index === 0; node.dataset.inited = '1'; } }} onClick={() => onActiveItem(item.id)}>
+          <summary className="flex cursor-pointer items-center gap-2 px-2 py-2 hover:bg-muted/50"><span className="min-w-0 flex-1 truncate">{getItemTitle(section, item, t)}</span><small className="max-w-24 truncate text-xs text-muted-foreground">{getItemMeta(section, item, t)}</small><span role="button" aria-label={t('Delete entry')} tabIndex={0} className="p-1 text-muted-foreground hover:text-destructive" onClick={event => { event.preventDefault(); event.stopPropagation(); onDeleteItem(section.id, item.id); }} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); event.stopPropagation(); onDeleteItem(section.id, item.id); } }}><Trash2 size={13} /></span></summary>
+          <div className="pb-3 pt-1"><EntryForm section={section} item={item} onItem={patch => onItem(section.id, item.id, patch)} /></div>
+        </details>)}
+        {tpl.kind !== 'text' && <Button variant="ghost" size="sm" className="justify-start" onClick={() => onAddItem(section)}><Plus data-icon="inline-start" />{t('Add another {section}', { section: section.label })}</Button>}
+        <details className="editor-section-options"><summary>{visualText(lang, 'sectionOptions')}</summary><div className="editor-section-management">
+          <input aria-label={t('Title')} className="rounded border border-border px-2 py-1.5 text-xs" value={section.label} onChange={event => onSection(section.id, { label: event.target.value })} />
+          <button type="button" title={t('Move section up')} onClick={() => onMoveSection(section.id, -1)} disabled={index === 0}><MoveUp size={13} /></button>
+          <button type="button" title={t('Move section down')} onClick={() => onMoveSection(section.id, 1)} disabled={index === total - 1}><MoveDown size={13} /></button>
+          <button type="button" title={section.visible ? t('Hide section') : t('Show section')} onClick={() => onSection(section.id, { visible: !section.visible })}><Eye size={13} /></button>
+          <button type="button" title={t('Delete section')} className="text-muted-foreground hover:text-destructive" onClick={() => onDeleteSection(section.id)}><Trash2 size={13} /></button>
+        </div>{tpl.kind === 'text' && section.items.length === 1 && <Field label={t('Title')} value={section.items[0].title} onChange={value => onItem(section.id, section.items[0].id, { title: value })} />}
+          {tpl.kind === 'text' && <Button variant="ghost" size="sm" className="justify-start" onClick={() => onAddItem(section)}><Plus data-icon="inline-start" />{t('Add another {section}', { section: section.label })}</Button>}
+</details>
+      </div>
+    </details>
+  </section>;
 }
 
-function EntryForm({ section, item, onItem }: {section:ResumeSectionData;item:ResumeItemData;onItem:(patch:Partial<ResumeItemData>) => void}) {
+function EntryForm({ section, item, onItem, hideTitle = false }: {section:ResumeSectionData;item:ResumeItemData;onItem:(patch:Partial<ResumeItemData>) => void;hideTitle?:boolean}) {
   const { lang, t } = useTheme();
   const kind = SECTION_TEMPLATES[section.type]?.kind ?? 'experience';
   const chineseLocale = lang === 'zh' || lang === 'zh-TW';
@@ -1212,8 +914,8 @@ function EntryForm({ section, item, onItem }: {section:ResumeSectionData;item:Re
   const degreeOptions = DEGREE_OPTIONS[lang] || (chineseLocale ? DEGREE_OPTIONS.zh : DEGREE_OPTIONS.en);
   if (kind === 'text') return (
     <div className="flex flex-col gap-2">
-      <Field label={t('Title')} value={item.title} onChange={(v) => onItem({ title: v })} />
       <TextArea label={t('Body')} value={item.body} onChange={(v) => onItem({ body: v })} />
+      {!hideTitle && <details className="editor-section-options"><summary>{t('Title')}</summary><Field label={t('Title')} value={item.title} onChange={(v) => onItem({ title: v })} /></details>}
     </div>
   );
   if (kind === 'education') return (
@@ -1381,7 +1083,7 @@ function RichTextEditor({ label, value, onChange }: {label:string;value:string |
           <span className="mx-1 h-4 w-px bg-zinc-200" />
           <button type="button" className="p-0.5 rounded hover:bg-muted text-muted-foreground" title={t('Clear formatting')} onMouseDown={(e) => e.preventDefault()} onClick={() => fmt('removeFormat')}><Eraser size={13} /></button>
         </div>
-        <div ref={editorRef} className="min-h-[104px] px-2.5 py-2 text-xs leading-relaxed text-foreground focus:outline-none" role="textbox" contentEditable data-placeholder={t('Enter content')} suppressContentEditableWarning onInput={sync} onBlur={sync} onPaste={paste} />
+        <div ref={editorRef} className="min-h-[104px] px-2.5 py-2 text-xs leading-relaxed text-foreground focus:outline-none" role="textbox" aria-label={label} contentEditable data-placeholder={t('Enter content')} suppressContentEditableWarning onInput={sync} onBlur={sync} onPaste={paste} />
       </div>
       {linkPopup && (
         <div data-history-native className="fixed inset-0 z-50" onClick={() => setLinkPopup(null)}>
@@ -1410,12 +1112,8 @@ function RichTextEditor({ label, value, onChange }: {label:string;value:string |
 }
 
 function Field({ label, value, onChange, placeholder, disabled }: {label:string;value:string | undefined;onChange:(value:string) => void;placeholder?:string;disabled?:boolean}) {
-  return (
-    <label className="flex flex-col gap-1">
-      <span className="text-xs text-muted-foreground">{label}</span>
-      <input className="rounded-md border border-zinc-200 bg-white px-2.5 py-2 text-xs text-foreground placeholder:text-muted-foreground/70 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 disabled:opacity-50 disabled:bg-muted" aria-label={label} value={value ?? ''} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} disabled={disabled} />
-    </label>
-  );
+  const id = useId();
+  return <FormField className="editor-field" data-disabled={disabled || undefined}><FieldLabel htmlFor={id}>{label}</FieldLabel><input id={id} className="text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15" aria-label={label} value={value ?? ''} onChange={event => onChange(event.target.value)} placeholder={placeholder} disabled={disabled} /></FormField>;
 }
 
 function ComboField({ label, value, onChange, options, hotOptions = [], listId, placeholder, disabled }: {label:string;value:string | undefined;onChange:(value:string) => void;options:string[];hotOptions?:string[];listId:string;placeholder?:string;disabled?:boolean}) {
@@ -1587,281 +1285,6 @@ function TextArea({ label, value, onChange }: {label:string;value:string | undef
       <span className="text-xs text-muted-foreground">{label}</span>
       <textarea className="min-h-[72px] resize-y rounded-md border border-zinc-200 bg-white px-2.5 py-2 text-xs text-foreground placeholder:text-muted-foreground/70 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15" aria-label={label} value={value ?? ''} rows={3} onChange={(e) => onChange(e.target.value)} />
     </label>
-  );
-}
-
-function PreviewStage({ children, className }: {children:(value:{scale:number}) => React.ReactNode;className?:string}) {
-  const { t } = useTheme();
-  const stageRef = useRef<HTMLDivElement | null>(null);
-  const [fitScale, setFitScale] = useState(0.7);
-  const [zoom, setZoom] = useState(1);
-  useEffect(() => {
-    const el = stageRef.current;
-    if (!el) return;
-    const update = () => {
-      const widthScale = (el.clientWidth - 48) / DEFAULT_A4_WIDTH_PX;
-      const heightScale = (el.clientHeight - 84) / DEFAULT_A4_HEIGHT_PX;
-      setFitScale(Math.max(0.35, Math.min(widthScale, heightScale, 0.95)));
-    };
-    update();
-    const ro = new ResizeObserver(update);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
-  const scale = Math.max(0.35, Math.min(fitScale * zoom, 1.15));
-  const zoomLabel = `${Math.round(scale * 100)}%`;
-  return (
-    <section className={cn("min-h-0 flex-col bg-muted/55", className)} aria-label={t('Resume preview')}>
-      <header className="flex h-11 shrink-0 items-center justify-between border-b border-zinc-200 bg-white px-3">
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <Eye size={14} className="text-primary" />
-          <span>{t('A4 preview')}</span>
-          <span className="hidden sm:inline">· {zoomLabel}</span>
-        </div>
-        <div className="flex items-center gap-1">
-          <button className="grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground" title={t('Zoom out')} onClick={() => setZoom((v) => Math.max(0.65, Number((v - 0.1).toFixed(2))))}>
-            <ZoomOut size={14} />
-          </button>
-          <button className="grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground" title={t('Fit to screen')} onClick={() => setZoom(1)}>
-            <Maximize2 size={14} />
-          </button>
-          <button className="grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground" title={t('Zoom in')} onClick={() => setZoom((v) => Math.min(1.45, Number((v + 0.1).toFixed(2))))}>
-            <ZoomIn size={14} />
-          </button>
-        </div>
-      </header>
-      <div className="flex-1 overflow-auto px-4 py-5 sm:px-6" ref={stageRef}>
-        {typeof children === 'function' ? children({ scale }) : children}
-      </div>
-    </section>
-  );
-}
-
-function PaginatedResumePreview({ resume, settings, refNode, scale, activeItemId, onLocate }: {resume:Resume;settings:ResumeSettings;refNode:React.RefObject<HTMLElement>;scale:number;activeItemId?:string | null;onLocate?:(id:string) => void}) {
-  const { t } = useTheme();
-  const pagesRef = useRef<HTMLDivElement | null>(null);
-  const [layout, setLayout] = useState({
-    pageWidth: DEFAULT_A4_WIDTH_PX,
-    pageHeight: DEFAULT_A4_HEIGHT_PX,
-    cuts: [0, DEFAULT_A4_HEIGHT_PX]
-  });
-
-  useLayoutEffect(() => {
-    const node = refNode.current;
-    if (!node) return undefined;
-    let cancelled = false;
-    let frame = 0;
-
-    const update = () => {
-      cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(async () => {
-        await document.fonts?.ready;
-        await waitForLayout();
-        if (cancelled || !refNode.current) return;
-        const source = refNode.current;
-        const rect = source.getBoundingClientRect();
-        const pageWidth = Math.ceil(rect.width || DEFAULT_A4_WIDTH_PX);
-        const pageHeight = Math.round(pageWidth * A4_RATIO);
-        const totalHeight = Math.ceil(Math.max(rect.height, source.scrollHeight, pageHeight));
-        const cuts = getSmartPageCuts(source, pageHeight, { totalHeight });
-        if (!cancelled) setLayout({ pageWidth, pageHeight, cuts });
-      });
-    };
-
-    update();
-    const ro = new ResizeObserver(update);
-    ro.observe(node);
-    return () => {
-      cancelled = true;
-      cancelAnimationFrame(frame);
-      ro.disconnect();
-    };
-  }, [resume, settings, refNode]);
-
-  useLayoutEffect(() => {
-    const targets = pagesRef.current?.querySelectorAll<HTMLElement>('[data-preview-target]') || [];
-    let activePage: HTMLElement | null = null;
-    targets.forEach((node) => {
-      const clip = node.closest('.resume-page-clip')!.getBoundingClientRect();
-      const rect = node.getBoundingClientRect();
-      const visible = rect.bottom > clip.top + 1 && rect.top < clip.bottom - 1;
-      node.tabIndex = visible ? 0 : -1;
-      node.setAttribute('aria-hidden', String(!visible));
-      node.setAttribute('role', 'button');
-      node.setAttribute('aria-label', `${t('Edit this section')}: ${(node.textContent || '').trim().slice(0, 80)}`);
-      node.classList.toggle('resume-edit-target', visible);
-      node.classList.toggle('resume-edit-selected', visible && node.dataset.previewTarget === activeItemId);
-      if (visible && node.dataset.previewTarget === activeItemId && !activePage) activePage = node.closest<HTMLElement>('.resume-page-shell');
-    });
-    // Scroll the page shell, never a clipped duplicate of the full document.
-    if (activePage && activeItemId !== lastActive.current) (activePage as HTMLElement).scrollIntoView({ block: 'nearest', inline: 'nearest' });
-    lastActive.current = activeItemId || null;
-  }, [activeItemId, layout, scale, resume, t]);
-  const lastActive = useRef<string | null>(null);
-  const selectTarget = (event: React.MouseEvent<HTMLElement> | React.KeyboardEvent<HTMLElement>) => {
-    const target = (event.target as Element).closest<HTMLElement>('[data-preview-target]');
-    if (!target?.classList.contains('resume-edit-target')) return;
-    if (event.type === 'keydown' && ('key' in event && event.key !== 'Enter' && event.key !== ' ')) return;
-    event.preventDefault();
-    onLocate?.(target.dataset.previewTarget || '');
-  };
-
-  const pages = Array.from({ length: Math.max(1, layout.cuts.length - 1) }, (_, index) => {
-    const top = layout.cuts[index] ?? 0;
-    const bottom = layout.cuts[index + 1] ?? layout.pageHeight;
-    return {
-      index,
-      top,
-      height: Math.min(layout.pageHeight, Math.max(1, bottom - top))
-    };
-  });
-
-  return (
-    <>
-      <div className="resume-pagination-measure" aria-hidden="true">
-        <ResumePreview resume={resume} settings={settings} refNode={refNode} />
-      </div>
-      <div ref={pagesRef} className="resume-pages mx-auto" onClick={selectTarget} onKeyDown={selectTarget}>
-        {pages.map((page) => (
-          <div
-            key={`${page.index}-${page.top}-${page.height}`}
-            className="resume-page-shell"
-            style={{
-              width: `${layout.pageWidth * scale}px`,
-              height: `${layout.pageHeight * scale}px`
-            }}
-          >
-            <div
-              className="resume-page-clip"
-              style={{
-                width: `${layout.pageWidth}px`,
-                height: `${page.height}px`,
-                transform: `scale(${scale})`
-              }}
-            >
-              <div className="resume-page-content" style={{ transform: `translateY(-${page.top}px)` }}>
-                <ResumePreview resume={resume} settings={settings} className="resume-paper-slice" />
-              </div>
-            </div>
-            {pages.length > 1 && <span className="resume-page-number">{page.index + 1} / {pages.length}</span>}
-          </div>
-        ))}
-      </div>
-    </>
-  );
-}
-
-export function ResumePreview({ resume, settings, refNode, className, paperStyle, profileHeading = 'h1' }: {resume:Resume;settings:ResumeSettings;refNode?:React.Ref<HTMLElement>;className?:string;paperStyle?:React.CSSProperties;profileHeading?:'h1'|'h2'}) {
-  const accent = settings.accent ?? TEMPLATE_ACCENTS[settings.template];
-  const templateVariant = TEMPLATE_VARIANTS[settings.template] ?? 'classic';
-  const visible = resume.sections.filter((s) => s.visible);
-  const style: React.CSSProperties & Record<`--${string}`, string | number> = { '--accent': accent, '--resume-font': `"${settings.fontFamily}", "Microsoft YaHei", Arial, sans-serif`, '--resume-size': `${settings.fontSize}px`, '--resume-line': settings.lineHeight, '--resume-gap': settings.compact ? '11px' : '18px' };
-  return (
-    <article className={cn('resume-paper', `template-${templateVariant}`, settings.compact && 'compact', className)} style={{ ...style, ...paperStyle }} ref={refNode}>
-      <ResumeBackground />
-      <ResumeHeader profile={resume.profile} template={templateVariant} profileHeading={profileHeading} />
-      <div className="resume-body">{visible.map((s) => <ResumeSection key={s.id} section={s} />)}</div>
-    </article>
-  );
-}
-
-function ResumeBackground() {
-  return (
-    <div className="resume-bg" aria-hidden="true">
-      <span className="resume-bg-arc resume-bg-arc-1" />
-      <span className="resume-bg-arc resume-bg-arc-2" />
-      <span className="resume-bg-grid" />
-      <span className="resume-bg-side" />
-      <span className="resume-bg-corner" />
-    </div>
-  );
-}
-
-function ResumeHeader({ profile, template, profileHeading }: {profile:ResumeProfile;template:string;profileHeading?:'h1'|'h2'}) {
-  const NameTag = profileHeading || 'h1';
-  const { t } = useTheme();
-  const avatar = <img src={resolveResumeAvatar(profile.avatar)} alt={t('Profile photo')} crossOrigin="anonymous" />;
-  const profileInfo = getProfileInfoItems(profile, t);
-  if (template === 'rose') {
-    return (
-      <header data-preview-target="profile" className="resume-header rose-header">
-        <div className="rose-photo">{avatar}</div>
-        <div className="rose-banner">
-          <NameTag className="resume-name">{profile.name || t('Name')}</NameTag>
-          <div className="rose-info-grid">
-            {profile.headline && <span className="rose-info-item"><strong>{t('Target role')}</strong><em>{profile.headline}</em></span>}
-            {profile.phone && <span className="rose-info-item"><strong>{t('Phone')}</strong><em>{profile.phone}</em></span>}
-            {profile.email && <span className="rose-info-item"><strong>{t('Email')}</strong><em>{profile.email}</em></span>}
-            {profile.city && <span className="rose-info-item"><strong>{t('City')}</strong><em>{profile.city}</em></span>}
-            {getAgeLabel(profile.birthday, t) && <span className="rose-info-item"><strong>{t('Age')}</strong><em>{getAgeLabel(profile.birthday, t)}</em></span>}
-            {profile.status && <span className="rose-info-item"><strong>{t('Status')}</strong><em>{profile.status}</em></span>}
-            {profile.website && <span className="rose-info-item"><strong>{t('Website')}</strong><em>{profile.website}</em></span>}
-          </div>
-        </div>
-      </header>
-    );
-  }
-  if (template === 'leftline') {
-    const contactLine = [profile.phone, profile.email, profile.city].filter(Boolean).join('  |  ');
-    return (
-      <header data-preview-target="profile" className="resume-header classic-header">
-        <div>
-          <NameTag className="resume-name">{profile.name || t('Name')}</NameTag>
-          <p>{[contactLine, profile.birthday, profile.status].filter(Boolean).join('\n')}</p>
-        </div>
-        <div className="classic-photo">{avatar}</div>
-      </header>
-    );
-  }
-  return (
-    <header data-preview-target="profile" className="resume-header classic-header">
-      <div>
-        <NameTag className="resume-name">{profile.name || t('Name')}</NameTag>
-        <p>{profileInfo.join(' | ')}</p>
-      </div>
-      <div className="classic-photo">{avatar}</div>
-    </header>
-  );
-}
-
-function ResumeSection({ section }: {section:ResumeSectionData}) {
-  const kind = SECTION_TEMPLATES[section.type]?.kind ?? 'experience';
-  return (
-    <section className={`resume-section section-${kind}`}>
-      <h2 data-preview-target={`section:${section.id}`}>{section.label}</h2>
-      <div className="section-content">{section.items.map((item) => <ResumeItem key={item.id} kind={kind} item={item} />)}</div>
-    </section>
-  );
-}
-
-function ResumeItem({ kind, item }: {kind:string;item:ResumeItemData}) {
-  const { t } = useTheme();
-  if (kind === 'text') return <p data-preview-target={item.id} className="summary-text">{item.body}</p>;
-  if (kind === 'education') {
-    const period = getItemPeriodLabel(item, t);
-    const metaParts = [item.major, item.degree, item.location].filter(Boolean);
-    return (
-      <div data-preview-target={item.id} className="experience-item education-item">
-        <div className="experience-top"><strong>{item.school}</strong><span>{period}</span></div>
-        <div className="experience-meta"><span>{metaParts.join(' · ')}</span></div>
-        {!isRichTextEmpty(getEducationBody(item)) && <div className="experience-body" dangerouslySetInnerHTML={{ __html: getEducationBody(item) }} />}
-      </div>
-    );
-  }
-  if (kind === 'simpleList') return (
-    <div data-preview-target={item.id} className="simple-row"><strong>{item.title}</strong><span>{item.meta}</span>{item.description && <p>{item.description}</p>}</div>
-  );
-  if (kind === 'chips') return (
-    <div data-preview-target={item.id} className="skill-row"><strong>{item.title}</strong><div className="skill-lines">{(item.values ?? []).map((v, i) => <span key={`${v}-${i}`}>{v}</span>)}</div></div>
-  );
-  const period = getItemPeriodLabel(item, t);
-  const metaParts = [item.role, item.department, item.location].filter(Boolean);
-  return (
-    <div data-preview-target={item.id} className="experience-item">
-      <div className="experience-top"><strong>{item.org}</strong><span>{period}</span></div>
-      <div className="experience-meta"><span>{metaParts.join(' · ')}</span></div>
-      {!isRichTextEmpty(getExperienceBody(item)) && <div className="experience-body" dangerouslySetInnerHTML={{ __html: getExperienceBody(item) }} />}
-    </div>
   );
 }
 

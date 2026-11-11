@@ -2,7 +2,7 @@ import type * as React from 'react';
 import { memo,useEffect,useRef,useState } from 'react';
 import { RESUME_TEMPLATES,localizeTemplateTag } from '../data.ts';
 import { useTheme } from '../lib/theme.tsx';
-import type { ResumePreview } from '../pages/Editor.tsx';
+import type { ResumePreview } from './ResumePreview.tsx';
 import type { Resume,ResumeSettings,ResumeTemplate,Setter } from '../types.ts';
 import { Badge } from './ui/badge.tsx';
 import { Button } from './ui/button.tsx';

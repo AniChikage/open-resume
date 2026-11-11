@@ -1,0 +1,14 @@
+/* Smaller system-font aliases. Missing glyphs fall back to the original full faces. */
+@font-face {font-family:"Microsoft YaHei";src:url("/fonts/ResumeSansCommon-Regular.otf") format("opentype");font-weight:400;font-style:normal;font-display:swap;}
+@font-face {font-family:"Microsoft YaHei";src:url("/fonts/ResumeSansCommon-Bold.otf") format("opentype");font-weight:600 900;font-style:normal;font-display:swap;}
+@font-face {font-family:"SimHei";src:url("/fonts/ResumeSansCommon-Regular.otf") format("opentype");font-weight:400;font-style:normal;font-display:swap;}
+@font-face {font-family:"SimHei";src:url("/fonts/ResumeSansCommon-Bold.otf") format("opentype");font-weight:600 900;font-style:normal;font-display:swap;}
+@font-face {font-family:"SimSun";src:url("/fonts/ResumeSerifCommon-Regular.otf") format("opentype");font-weight:400;font-style:normal;font-display:swap;}
+@font-face {font-family:"SimSun";src:url("/fonts/ResumeSerifCommon-Bold.otf") format("opentype");font-weight:600 900;font-style:normal;font-display:swap;}
+@font-face {font-family:"KaiTi";src:url("/fonts/ResumeSerifCommon-Regular.otf") format("opentype");font-weight:400;font-style:normal;font-display:swap;}
+@font-face {font-family:"KaiTi";src:url("/fonts/ResumeSerifCommon-Bold.otf") format("opentype");font-weight:600 900;font-style:normal;font-display:swap;}
+@font-face {font-family:"FangSong";src:url("/fonts/ResumeSerifCommon-Regular.otf") format("opentype");font-weight:400;font-style:normal;font-display:swap;}
+@font-face {font-family:"FangSong";src:url("/fonts/ResumeSerifCommon-Bold.otf") format("opentype");font-weight:600 900;font-style:normal;font-display:swap;}
+
+/* This hidden DOM only supplies content; exact font measurement happens in the isolated PDF surface. */
+.resume-pagination-measure .resume-paper, .resume-pagination-measure .resume-paper * {font-family:Arial,sans-serif!important;}

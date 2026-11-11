@@ -1,8 +1,12 @@
-import fontkit from '@pdf-lib/fontkit';
-import html2canvas from 'html2canvas';
-import jsPDF from 'jspdf';
-import type { PDFFont,PDFPage,RGB } from 'pdf-lib';
-import { PDFDocument,rgb } from 'pdf-lib';
+import { getResumeBackgroundPages } from './lib/pdf-background.ts';
+import { PDF_FONT_FAMILIES, getPdfFontKey as getFontFamilyKey, getPdfFontBytes as getVectorFontBytes } from './lib/pdf-fonts.ts';
+import { getPdfPageLayout } from './lib/pdf-layout.ts';
+import { getPaperSize } from './lib/paper.ts';
+import fontkit from './lib/pdf-fontkit.ts';
+import type html2canvas from 'html2canvas';
+import type jsPDF from 'jspdf';
+import type { PDFEmbeddedPage,PDFFont,PDFPage,RGB } from 'pdf-lib';
+import { degrees,PDFDocument,rgb } from 'pdf-lib';
 import {
 DEFAULT_SETTINGS,
 SECTION_TEMPLATES,
@@ -11,10 +15,11 @@ TEMPLATE_VARIANTS
 } from './data.ts';
 import { A4_HEIGHT_MM,A4_WIDTH_MM,getSmartPageCuts } from './lib/pagination.ts';
 import { saveCanvasAsPng } from './lib/png-export.ts';
+import { parseLinearGradient } from './lib/pdf-gradient.ts';
 import type { Resume,ResumeItem,ResumeProfile,ResumeSection,ResumeSettings } from './types.ts';
 type FontSet = { normal:PDFFont; bold:PDFFont };
 type CssColor = { color:RGB; opacity:number; raw?:{r:number;g:number;b:number} };
-type TextOptions = {bold?:boolean;maxWidth?:number;lineRatio?:number;bulletIndent?:number};
+type TextOptions = {bold?:boolean;italic?:boolean;maxWidth?:number;lineRatio?:number;bulletIndent?:number};
 type RichBlock = {text:string;bullet?:boolean;marker?:string;level?:number;listType?:string};
 type Box = {left:number;right:number;top:number;bottom:number;width:number;height:number};
 type TextRun = {text:string;rect:Box;topKey?:number};
@@ -35,6 +40,7 @@ const downloadBlob = (blob: Blob, filename: string) => {
 };
 
 const getCanvas = async (node: HTMLElement, optionsOverride: Partial<Parameters<typeof html2canvas>[1]> = {}) => {
+  const { default: html2canvas } = await import('html2canvas');
   await document.fonts?.ready;
   const rect = node.getBoundingClientRect();
   const width = Math.ceil(rect.width || node.scrollWidth);
@@ -65,33 +71,11 @@ const getCanvas = async (node: HTMLElement, optionsOverride: Partial<Parameters<
 
 const PDF_EPSILON_MM = 0.5;
 const PDF_CANVAS_SCALE = 4;
-const VECTOR_FONT_URLS: Record<string,{normal:string;bold:string}> = {
-  yahei: {
-    normal: '/fonts/NotoSansCJKsc-Regular.otf',
-    bold: '/fonts/NotoSansCJKsc-Bold.otf'
-  },
-  heiti: {
-    normal: '/fonts/NotoSansCJKsc-Regular.otf',
-    bold: '/fonts/NotoSansCJKsc-Bold.otf'
-  },
-  songti: {
-    normal: '/fonts/NotoSerifCJKsc-Regular.otf',
-    bold: '/fonts/NotoSerifCJKsc-Bold.otf'
-  },
-  kaiti: {
-    normal: '/fonts/NotoSerifCJKsc-Regular.otf',
-    bold: '/fonts/NotoSerifCJKsc-Bold.otf'
-  },
-  fangsong: {
-    normal: '/fonts/NotoSerifCJKsc-Regular.otf',
-    bold: '/fonts/NotoSerifCJKsc-Bold.otf'
-  }
-};
+const VECTOR_FONT_URLS: Record<string,{normal:string;bold:string}> = PDF_FONT_FAMILIES;
 const PAGE_WIDTH_PT = mmToPt(A4_WIDTH_MM);
 const PAGE_HEIGHT_PT = mmToPt(A4_HEIGHT_MM);
 const PX_TO_PT = 0.75;
 
-const vectorFontBytesPromises: Map<string, Promise<ArrayBuffer>> = new Map();
 
 const addCanvasToPdfPage = (pdf: jsPDF, canvas: HTMLCanvasElement, orientation: string = 'portrait') => {
   const pageWidth = orientation === 'landscape' ? 297 : 210;
@@ -116,6 +100,7 @@ const addCanvasToPdfPage = (pdf: jsPDF, canvas: HTMLCanvasElement, orientation: 
 
 export const exportResumeAsPdf = async (node: HTMLElement, filename = 'resume.pdf') => {
   const canvas = await getCanvas(node, { scale: PDF_CANVAS_SCALE });
+  const { default: jsPDF } = await import('jspdf');
   const pdf = new jsPDF('p', 'mm', 'a4');
   const imgHeightMm = (canvas.height * A4_WIDTH_MM) / canvas.width;
 
@@ -159,51 +144,41 @@ export const exportResumeAsVectorPdf = async (resume: Resume, settings: ResumeSe
   downloadBlob(new Blob([new Uint8Array(bytes)], { type: 'application/pdf' }), filename);
 };
 
-export const exportResumeAsDomVectorPdf = async (node: HTMLElement, filename = 'resume.pdf') => {
+export const buildResumePdf = async (node: HTMLElement) => {
   const pdfDoc = await PDFDocument.create();
   pdfDoc.registerFontkit(fontkit);
   const rootStyle = node.ownerDocument.defaultView!.getComputedStyle(node);
   const fontSet = await getPdfFontSet(pdfDoc, getFontFamilyKey(rootStyle.fontFamily));
   const renderer = new DomVectorPdfRenderer(pdfDoc, fontSet, node);
   await renderer.render();
-  const bytes = await pdfDoc.save();
+  return pdfDoc.save();
+};
+
+export const exportResumeAsDomVectorPdf = async (node: HTMLElement, filename = 'resume.pdf') => {
+  const bytes = await buildResumePdf(node);
   downloadBlob(new Blob([new Uint8Array(bytes)], { type: 'application/pdf' }), filename);
 };
 
-async function getPdfFontSet(pdfDoc: PDFDocument, familyKey: string = 'yahei') {
-  const family = VECTOR_FONT_URLS[familyKey] || VECTOR_FONT_URLS.yahei;
+async function getPdfFontSet(pdfDoc: PDFDocument, familyKey: string = 'sans') {
+  const family = VECTOR_FONT_URLS[familyKey] || VECTOR_FONT_URLS.sans;
   const [normalBytes, boldBytes] = await Promise.all([
     getVectorFontBytes(family.normal),
     getVectorFontBytes(family.bold)
   ]);
-  return {
-    normal: await pdfDoc.embedFont(normalBytes, { subset: false }),
-    bold: await pdfDoc.embedFont(boldBytes, { subset: false })
+  const fonts = {
+    normal: await pdfDoc.embedFont(normalBytes, { subset: true }),
+    bold: await pdfDoc.embedFont(boldBytes, { subset: true })
   };
-}
-
-async function getVectorFontBytes(url: string) {
-  if (!vectorFontBytesPromises.has(url)) {
-    vectorFontBytesPromises.set(url, fetch(url)
-      .then((res) => {
-        if (!res.ok) throw new Error(`VECTOR_FONT_LOAD_FAILED:${res.status}`);
-        return res.arrayBuffer();
-      }));
-  }
-  return vectorFontBytesPromises.get(url)!;
-}
-
-function getFontFamilyKey(fontFamily: string) {
-  const family = String(fontFamily || '').toLowerCase();
-  if (family.includes('simhei') || family.includes('hei') || family.includes('黑体')) return 'heiti';
-  if (family.includes('simsun') || family.includes('song') || family.includes('宋体')) return 'songti';
-  if (family.includes('kaiti') || family.includes('kai') || family.includes('楷体')) return 'kaiti';
-  if (family.includes('fangsong') || family.includes('fang') || family.includes('仿宋')) return 'fangsong';
-  return 'yahei';
+  // An unused weight must still have a valid CFF subset (not only .notdef).
+  fonts.normal.encodeText(' ');
+  fonts.bold.encodeText(' ');
+  return fonts;
 }
 
 class DomVectorPdfRenderer {
   declare pdfDoc: PDFDocument;
+  declare pageWidthPt: number;
+  declare pageHeightPt: number;
   declare fontSet: FontSet;
   declare font: PDFFont;
   declare page: PDFPage | null;
@@ -213,20 +188,28 @@ class DomVectorPdfRenderer {
   declare cssPageHeight: number;
   declare totalHeight: number;
   declare cuts: number[];
+  declare insets: number[];
+  declare pageInset: number;
   declare pageTop: number;
   declare pageBottom: number;
-  declare _bgPages: string[] | null | undefined;
+  declare _bgPages: PDFEmbeddedPage[] | null | undefined;
 
   constructor(pdfDoc: PDFDocument, fontSet: FontSet, node: HTMLElement) {
     this.pdfDoc = pdfDoc;
+    const paper = getPaperSize(node.dataset.paperSize);
+    this.pageWidthPt = paper.widthPt;
+    this.pageHeightPt = paper.heightPt;
     this.fontSet = fontSet;
     this.font = fontSet.normal;
     this.node = node;
     this.rootRect = node.getBoundingClientRect();
-    this.scale = PAGE_WIDTH_PT / this.rootRect.width;
-    this.cssPageHeight = this.rootRect.width * (A4_HEIGHT_MM / A4_WIDTH_MM);
+    this.scale = this.pageWidthPt / this.rootRect.width;
+    this.cssPageHeight = this.rootRect.width * (paper.heightMm / paper.widthMm);
     this.totalHeight = Math.ceil(Math.max(this.rootRect.height, node.scrollHeight, this.cssPageHeight));
-    this.cuts = getSmartPageCuts(node, this.cssPageHeight, { totalHeight: this.totalHeight });
+    const layout = getPdfPageLayout(node);
+    this.cuts = layout.cuts;
+    this.insets = layout.insets;
+    this.pageInset = 0;
     this.page = null;
     this.pageTop = 0;
     this.pageBottom = 0;
@@ -236,10 +219,11 @@ class DomVectorPdfRenderer {
     await this.drawBgLayer();
     for (let index = 0; index < this.cuts.length - 1; index += 1) {
       this.pageTop = this.cuts[index];
+      this.pageInset = this.insets[index];
       this.pageBottom = this.cuts[index + 1];
-      this.page = this.pdfDoc.addPage([PAGE_WIDTH_PT, PAGE_HEIGHT_PT]);
+      this.page = this.pdfDoc.addPage([this.pageWidthPt, this.pageHeightPt]);
       await this.drawPageBg(index);
-      this.drawElementBackgrounds();
+      await this.drawElementBackgrounds();
       this.drawElementBorders();
       await this.drawImages();
       this.drawListMarkers();
@@ -249,69 +233,61 @@ class DomVectorPdfRenderer {
 
   async drawBgLayer() {
     const bgEl = this.node.querySelector<HTMLElement>('.resume-bg');
-    if (!bgEl) { this._bgPages = null; return; }
-    const scale = 3;
-    const w = Math.ceil(this.rootRect.width * scale);
-    const h = Math.ceil(this.totalHeight * scale);
-    const canvas = document.createElement('canvas');
-    canvas.width = w;
-    canvas.height = h;
-    const ctx = canvas.getContext('2d')!;
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, w, h);
-    try {
-      const html2canvas = (await import('html2canvas')).default;
-      const bgCanvas = await html2canvas(bgEl, {
-        backgroundColor: null,
-        scale,
-        width: Math.ceil(this.rootRect.width),
-        height: this.totalHeight,
-        useCORS: true,
-        logging: false,
-        foreignObjectRendering: true
-      });
-      ctx.drawImage(bgCanvas, 0, 0);
-    } catch { /* fallback: no bg decoration */ }
-    const pageH = Math.ceil(this.cssPageHeight * scale);
-    this._bgPages = [];
-    for (let i = 0; i < this.cuts.length - 1; i++) {
-      const y = Math.round(this.cuts[i] * scale);
-      const sliceH = Math.round((this.cuts[i + 1] - this.cuts[i]) * scale);
-      const pageCanvas = document.createElement('canvas');
-      pageCanvas.width = w;
-      pageCanvas.height = pageH;
-      const pCtx = pageCanvas.getContext('2d')!;
-      pCtx.fillStyle = '#ffffff';
-      pCtx.fillRect(0, 0, w, pageH);
-      pCtx.drawImage(canvas, 0, y, w, sliceH, 0, 0, w, sliceH);
-      this._bgPages.push(pageCanvas.toDataURL('image/png'));
-    }
+    if (!bgEl || ![bgEl, ...bgEl.querySelectorAll<HTMLElement>('*')].some(element => {
+      const style = this.node.ownerDocument.defaultView!.getComputedStyle(element);
+      return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0' && (style.backgroundImage !== 'none' || style.backgroundColor !== 'rgba(0, 0, 0, 0)' || style.boxShadow !== 'none' || ['borderTopWidth','borderRightWidth','borderBottomWidth','borderLeftWidth'].some(side => parseFloat(style.getPropertyValue(side.replace(/[A-Z]/g, letter => '-' + letter.toLowerCase()))) > 0));
+    })) { this._bgPages = null; return; }
+    const background = await getResumeBackgroundPages(bgEl, { width: this.rootRect.width, height: this.totalHeight, pageHeight: this.cssPageHeight, cuts: this.cuts, insets: this.insets });
+    this._bgPages = await this.pdfDoc.embedPdf(background, this.cuts.slice(1).map((_, index) => index));
   }
 
   async drawPageBg(pageIndex: number) {
     if (!this._bgPages || !this._bgPages[pageIndex]) return;
-    try {
-      const dataUrl = this._bgPages[pageIndex];
-      const res = await fetch(dataUrl);
-      const bytes = new Uint8Array(await res.arrayBuffer());
-      const img = await this.pdfDoc.embedPng(bytes);
-      this.page!.drawImage(img, { x: 0, y: 0, width: PAGE_WIDTH_PT, height: PAGE_HEIGHT_PT });
-    } catch { /* skip bg */ }
+    this.page!.drawPage(this._bgPages[pageIndex], { x: 0, y: 0, width: this.pageWidthPt, height: this.pageHeightPt });
   }
 
-  drawElementBackgrounds() {
-    Array.from(this.node.querySelectorAll('*')).forEach((el) => {
+  async drawElementBackgrounds() {
+    for (const el of this.node.querySelectorAll('*')) {
+      if (el.closest('.resume-bg')) continue;
       const style = el.ownerDocument.defaultView!.getComputedStyle(el);
       const fill = parseCssColor(style.backgroundColor);
-      if (!fill || isEffectivelyWhite(fill)) return;
-      Array.from(el.getClientRects()).forEach((rect) => {
-        this.drawCssRect(rect, fill);
-      });
-    });
+      for (const rect of el.getClientRects()) {
+        if (fill && !isEffectivelyWhite(fill)) this.drawCssRect(rect, fill);
+        if (this.intersectsPage(rect)) await this.drawGradient(rect, style.backgroundImage);
+      }
+    }
+  }
+
+  async drawGradient(rect: DOMRect, background: string) {
+    const gradient = parseLinearGradient(background);
+    if (!gradient || !rect.width || !rect.height) return;
+    const scale = 2;
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.ceil(rect.width * scale); canvas.height = Math.ceil(rect.height * scale);
+    const ctx = canvas.getContext('2d')!;
+    ctx.scale(scale, scale);
+    const angle = gradient.angle * Math.PI / 180;
+    const dx = Math.sin(angle); const dy = -Math.cos(angle);
+    const length = Math.abs(rect.width * dx) + Math.abs(rect.height * dy);
+    const paint = ctx.createLinearGradient(rect.width / 2 - dx * length / 2, rect.height / 2 - dy * length / 2, rect.width / 2 + dx * length / 2, rect.height / 2 + dy * length / 2);
+    for (const stop of gradient.stops) paint.addColorStop(stop.position, stop.color);
+    ctx.fillStyle = paint; ctx.fillRect(0, 0, rect.width, rect.height);
+    const top = rect.top - this.rootRect.top;
+    const clippedTop = Math.max(top, this.pageTop);
+    const clippedBottom = Math.min(top + rect.height, this.pageBottom);
+    const slice = document.createElement('canvas');
+    slice.width = canvas.width; slice.height = Math.ceil((clippedBottom - clippedTop) * scale);
+    if (slice.height <= 0) return;
+    slice.getContext('2d')!.drawImage(canvas, 0, (clippedTop - top) * scale, canvas.width, slice.height, 0, 0, canvas.width, slice.height);
+    const bytes = await (await fetch(slice.toDataURL('image/png'))).arrayBuffer();
+    const image = await this.pdfDoc.embedPng(bytes);
+    const box = this.rectToPageBox(rect);
+    if (box) this.page!.drawImage(image, box);
   }
 
   drawElementBorders() {
     Array.from(this.node.querySelectorAll('*')).forEach((el) => {
+      if (el.closest('.resume-bg')) return;
       const style = el.ownerDocument.defaultView!.getComputedStyle(el);
       const rects = Array.from(el.getClientRects());
       rects.forEach((rect) => {
@@ -339,7 +315,7 @@ class DomVectorPdfRenderer {
       if (!src) continue;
       try {
         const bytes = await fetchImageBytes(src);
-        const embedded = /image\/png|\\.png(?:$|[?#])/i.test(src)
+        const embedded = bytes[0] === 0x89 && bytes[1] === 0x50
           ? await this.pdfDoc.embedPng(bytes)
           : await this.pdfDoc.embedJpg(bytes);
         const box = this.rectToPageBox(rect);
@@ -353,7 +329,7 @@ class DomVectorPdfRenderer {
   drawListMarkers() {
     Array.from(this.node.querySelectorAll('li')).forEach((li) => {
       const textRect = getFirstTextRect(li);
-      if (!textRect || !this.intersectsPage(textRect)) return;
+      if (!textRect || !this.containsTextLine(textRect)) return;
       const marker = getListMarker(li);
       if (!marker) return;
       const style = li.ownerDocument.defaultView!.getComputedStyle(li);
@@ -362,7 +338,7 @@ class DomVectorPdfRenderer {
       const markerWidth = this.font.widthOfTextAtSize(marker, fontSize);
       const markerGap = 5 * this.scale;
       const x = (textRect.left - this.rootRect.left) * this.scale - markerWidth - markerGap;
-      const yTop = (textRect.top - this.rootRect.top - this.pageTop) * this.scale;
+      const yTop = (textRect.top - this.rootRect.top - this.pageTop + this.pageInset) * this.scale;
       this.drawPdfText(marker, x, yTop, fontSize, color, { maxWidth: markerWidth + markerGap });
     });
   }
@@ -389,20 +365,21 @@ class DomVectorPdfRenderer {
     const fontSize = parseFloat(style.fontSize || '12') * this.scale;
     const bold = Number.parseInt(style.fontWeight, 10) >= 600 || style.fontWeight === 'bold';
     const underline = String(style.textDecorationLine || '').includes('underline');
+    const italic = style.fontStyle === 'italic' || style.fontStyle.startsWith('oblique');
     const transform = style.textTransform;
 
     runs.forEach((run) => {
-      if (!this.intersectsPage(run.rect)) return;
+      if (!this.containsTextLine(run.rect)) return;
       const x = (run.rect.left - this.rootRect.left) * this.scale;
-      const yTop = (run.rect.top - this.rootRect.top - this.pageTop) * this.scale;
+      const yTop = (run.rect.top - this.rootRect.top - this.pageTop + this.pageInset) * this.scale;
       const maxWidth = run.rect.width * this.scale + 2;
       const text = applyTextTransform(run.text, transform);
-      this.drawPdfText(text, x, yTop, fontSize, color, { bold, maxWidth });
+      this.drawPdfText(text, x, yTop, fontSize, color, { bold, italic, maxWidth });
       if (underline) {
         const y = yTop + fontSize + 1.5 * this.scale;
         this.page!.drawLine({
-          start: { x, y: PAGE_HEIGHT_PT - y },
-          end: { x: x + Math.min(maxWidth, this.font.widthOfTextAtSize(text, fontSize)), y: PAGE_HEIGHT_PT - y },
+          start: { x, y: this.pageHeightPt - y },
+          end: { x: x + Math.min(maxWidth, this.font.widthOfTextAtSize(text, fontSize)), y: this.pageHeightPt - y },
           thickness: Math.max(0.4, this.scale),
           color: color.color,
           opacity: color.opacity
@@ -414,13 +391,14 @@ class DomVectorPdfRenderer {
   drawPdfText(text: string, x: number, yTop: number, size: number, color: CssColor, options: TextOptions = {}) {
     if (!text) return;
     const clipped = text;
-    const y = PAGE_HEIGHT_PT - yTop - size;
+    const y = this.pageHeightPt - yTop - size;
     const font = options.bold ? this.fontSet.bold : this.fontSet.normal;
     this.page!.drawText(clipped, {
       x,
       y,
       size,
       font,
+      ySkew: options.italic ? degrees(12) : undefined,
       color: color.color,
       opacity: color.opacity
     });
@@ -435,11 +413,11 @@ class DomVectorPdfRenderer {
     const clippedBottom = Math.min(top + height, this.pageBottom);
     if (clippedBottom <= clippedTop || width <= 0) return;
     const x = left * this.scale;
-    const yTop = (clippedTop - this.pageTop) * this.scale;
+    const yTop = (clippedTop - this.pageTop + this.pageInset) * this.scale;
     const h = (clippedBottom - clippedTop) * this.scale;
     this.page!.drawRectangle({
       x,
-      y: PAGE_HEIGHT_PT - yTop - h,
+      y: this.pageHeightPt - yTop - h,
       width: width * this.scale,
       height: h,
       color: color.color,
@@ -454,14 +432,19 @@ class DomVectorPdfRenderer {
     const clippedBottom = Math.min(bottom, this.pageBottom);
     if (clippedBottom <= clippedTop) return null;
     const x = (rect.left - this.rootRect.left) * this.scale;
-    const yTop = (clippedTop - this.pageTop) * this.scale;
+    const yTop = (clippedTop - this.pageTop + this.pageInset) * this.scale;
     const h = (clippedBottom - clippedTop) * this.scale;
     return {
       x,
-      y: PAGE_HEIGHT_PT - yTop - h,
+      y: this.pageHeightPt - yTop - h,
       width: rect.width * this.scale,
       height: h
     };
+  }
+
+  containsTextLine(rect: Box) {
+    const middle = (rect.top + rect.bottom) / 2 - this.rootRect.top;
+    return middle >= this.pageTop && middle < this.pageBottom;
   }
 
   intersectsPage(rect: Box) {
@@ -1246,6 +1229,7 @@ function base64ToUint8Array(base64: string) {
 export const exportNodesAsLandscapePdf = async (nodes: HTMLElement[], filename = 'portfolio.pdf') => {
   const list = Array.from(nodes).filter(Boolean);
   if (!list.length) return;
+  const { default: jsPDF } = await import('jspdf');
   const pdf = new jsPDF('l', 'mm', 'a4');
 
   for (const [index, node] of list.entries()) {

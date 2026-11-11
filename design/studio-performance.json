@@ -1,0 +1,90 @@
+{
+  "open-resume": {
+    "home": {
+      "before": {
+        "readyMs": 680,
+        "lcp": 672,
+        "bytes": 1522814,
+        "jsBytes": 789331,
+        "maxLongTaskMs": 65,
+        "longTaskMs": 65,
+        "heapMB": 5.233272552490234
+      },
+      "after": {
+        "readyMs": 398,
+        "lcp": 400,
+        "bytes": 1255152,
+        "jsBytes": 518303,
+        "maxLongTaskMs": 61,
+        "longTaskMs": 61,
+        "heapMB": 4.914447784423828
+      }
+    },
+    "editor": {
+      "before": {
+        "readyMs": 19025,
+        "lcp": 924,
+        "bytes": 38733876,
+        "jsBytes": 4042736,
+        "maxLongTaskMs": 1217,
+        "longTaskMs": 2440,
+        "heapMB": 24.70962142944336,
+        "previewMs": 3090
+      },
+      "after": {
+        "readyMs": 2335,
+        "lcp": 676,
+        "bytes": 4954848,
+        "jsBytes": 3481898,
+        "maxLongTaskMs": 218,
+        "longTaskMs": 423,
+        "heapMB": 11.410533905029297,
+        "previewMs": 869
+      }
+    }
+  },
+  "justcv": {
+    "home": {
+      "before": {
+        "readyMs": 334,
+        "lcp": 244,
+        "bytes": 1745574,
+        "jsBytes": 959681,
+        "maxLongTaskMs": 96,
+        "longTaskMs": 96,
+        "heapMB": 8.432918548583984
+      },
+      "after": {
+        "readyMs": 326,
+        "lcp": 240,
+        "bytes": 1454123,
+        "jsBytes": 692304,
+        "maxLongTaskMs": 92,
+        "longTaskMs": 92,
+        "heapMB": 7.921276092529297
+      }
+    },
+    "editor": {
+      "before": {
+        "readyMs": 18362,
+        "lcp": 656,
+        "bytes": 38926012,
+        "jsBytes": 4182367,
+        "maxLongTaskMs": 1324,
+        "longTaskMs": 2603,
+        "heapMB": 25.735820770263672,
+        "previewMs": 3234
+      },
+      "after": {
+        "readyMs": 2896,
+        "lcp": 672,
+        "bytes": 5640144,
+        "jsBytes": 4142129,
+        "maxLongTaskMs": 183,
+        "longTaskMs": 629,
+        "heapMB": 12.098159790039062,
+        "previewMs": 1396
+      }
+    }
+  }
+}

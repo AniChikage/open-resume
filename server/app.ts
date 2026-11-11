@@ -4,7 +4,8 @@ import http from 'node:http';
 import path from 'node:path';
 import type { SQLOutputValue } from 'node:sqlite';
 import { DatabaseSync } from 'node:sqlite';
-import { Readable } from 'node:stream';
+import { Readable,pipeline } from 'node:stream';
+import { createBrotliCompress,createGzip,constants as zlibConstants } from 'node:zlib';
 import type { Connect } from 'vite';
 import { errorMessage,isEditorDocument,isRecord } from '../src/lib/validation.ts';
 import { handleTailoring } from '../src/tailoring.ts';
@@ -16,7 +17,19 @@ export const DEMO_PASSWORD = 'admin';
 const COOKIE = 'openresume_session';
 const WEEK = 7 * 24 * 60 * 60;
 const digest = (value: string) => createHash('sha256').update(value).digest('hex');
-const mime: Record<string,string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.ico': 'image/x-icon', '.woff': 'font/woff', '.woff2': 'font/woff2', '.ttf': 'font/ttf', '.otf': 'font/otf' };
+const mime: Record<string,string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.ico': 'image/x-icon', '.woff': 'font/woff', '.woff2': 'font/woff2', '.ttf': 'font/ttf', '.otf': 'font/otf' };
+
+function staticEncoding(accept = '') {
+  const qualities = new Map(accept.toLowerCase().split(',').map(part => {
+    const [name, ...parameters] = part.trim().split(';');
+    const quality = parameters.find(value => value.trim().startsWith('q='));
+    const number = quality ? Number(quality.trim().slice(2)) : 1;
+    return [name, Number.isFinite(number) && number >= 0 && number <= 1 ? number : 0] as const;
+  }));
+  const br = qualities.get('br') ?? qualities.get('*') ?? 0;
+  const gzip = qualities.get('gzip') ?? qualities.get('*') ?? 0;
+  return br > 0 && br >= gzip ? 'br' : gzip > 0 ? 'gzip' : '';
+}
 
 function json(res: http.ServerResponse, status: number, value: unknown, headers: http.OutgoingHttpHeaders = {}) {
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', ...headers });
@@ -154,9 +167,15 @@ export function createApp({ dataDir = path.resolve('.data'), distDir = path.reso
       }
       let stat;
       try { stat = statSync(file); } catch { return json(res, 503, { error: 'Run npm run build first.' }); }
-      res.writeHead(200, { 'Content-Type': mime[path.extname(file)] || 'application/octet-stream', 'Content-Length': stat.size, 'Cache-Control': file.includes(path.sep + 'assets' + path.sep) ? 'public, max-age=31536000, immutable' : 'no-cache' });
+      const compressible = stat.size >= 1024 && /\.(?:html|js|mjs|css|json|svg|otf|ttf)$/.test(file);
+      const encoding = compressible ? staticEncoding(req.headers['accept-encoding']) : '';
+      res.writeHead(200, { 'Content-Type': mime[path.extname(file)] || 'application/octet-stream', ...(encoding ? { 'Content-Encoding': encoding } : { 'Content-Length': stat.size }), ...(compressible ? { Vary: 'Accept-Encoding' } : {}), 'Cache-Control': file.includes(path.sep + 'assets' + path.sep) ? 'public, max-age=31536000, immutable' : 'no-cache' });
       if (method === 'HEAD') return res.end();
-      createReadStream(file).on('error', () => res.destroy()).pipe(res);
+      const input = createReadStream(file);
+      if (encoding) {
+        const compressor = encoding === 'br' ? createBrotliCompress({ params: { [zlibConstants.BROTLI_PARAM_QUALITY]: 4 } }) : createGzip();
+        pipeline(input, compressor, res, () => {});
+      } else pipeline(input, res, () => {});
     } catch (error) {
       if (res.headersSent) { res.destroy(); return; }
       const status = isRecord(error) && typeof error.status === 'number' ? error.status : 500;
