@@ -24,10 +24,10 @@ const ERROR_COPY: Record<string,string> = {
   INVALID_AI_RESPONSE: 'The AI response could not be verified. No changes were made. Please try again.',
 };
 
-export default function TailorResumeDialog({ snapshot, currentResume, onClose }: {snapshot:EditorDocument;currentResume:Resume;onClose:()=>void}) {
+export default function TailorResumeDialog({ snapshot, currentResume, initialJobDescription = '', onClose }: {snapshot:EditorDocument;currentResume:Resume;initialJobDescription?:string;onClose:()=>void}) {
   const { lang, t } = useTheme();
   const { config } = useAuth();
-  const [jobDescription, setJobDescription] = useState('');
+  const [jobDescription, setJobDescription] = useState(initialJobDescription);
   const [consent, setConsent] = useState(false);
   const [result, setResult] = useState<TailoringResult|null>(null);
   const [selected, setSelected] = useState<string[]>([]);

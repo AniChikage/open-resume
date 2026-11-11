@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { mkdtemp,rm,writeFile } from 'node:fs/promises';
+import http from 'node:http';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -65,9 +66,63 @@ test('all templates, more than five resumes, edit/rename/delete and restart pers
     assert.equal(stored.resume.profile.name, 'Persistence check');
     assert.equal(stored.resume.title, 'Renamed resume');
     assert.equal(stored.settings.template, template.id);
+    assert.equal(stored.settings.titleMode, 'custom');
+    assert.equal(stored.settings.titleKind, 'custom');
     assert.equal((await fetch(`${base}/api/resumes/${id}`, { method: 'DELETE', headers: { Cookie: f.cookie } })).status, 200);
     assert.equal((await fetch(`${base}/api/resumes/${id}`, { headers: { Cookie: f.cookie } })).status, 404);
   } finally { restarted.close(); await once(restarted, 'close'); }
+});
+
+test('a slow rename merges with the latest save instead of overwriting its content and appearance', async (t) => {
+  const f = await fixture(t);
+  await f.login();
+  const resume = buildResumeFromTemplate(RESUME_TEMPLATES[0], 'en');
+  const created = await f.request('/api/resumes', 'POST', { title: resume.title, resume, settings: DEFAULT_SETTINGS });
+  const { id } = await created.json();
+  const route = `/api/resumes/${id}`;
+
+  const started = once(f.app, 'request');
+  const pending = http.request(f.base + route, { method: 'PUT', headers: { Cookie: f.cookie, 'Content-Type': 'application/json' } });
+  t.after(() => pending.destroy());
+  const response = once(pending, 'response');
+  pending.write('{"title":');
+  await started;
+
+  const latestResume = { ...resume, profile: { ...resume.profile, name: 'Latest saved content' } };
+  const latestSettings = { ...DEFAULT_SETTINGS, fontSize: 14, accent: '#123456' };
+  assert.equal((await f.request(route, 'PUT', { title: resume.title, resume: latestResume, settings: latestSettings })).status, 200);
+  pending.end('"My custom title"}');
+  const [renamed] = await response as [http.IncomingMessage];
+  renamed.resume();
+  assert.equal(renamed.statusCode, 200);
+
+  const saved = await (await f.request(route)).json();
+  assert.equal(saved.resume.profile.name, 'Latest saved content');
+  assert.equal(saved.title, 'My custom title');
+  assert.equal(saved.resume.title, 'My custom title');
+  assert.deepEqual(saved.settings, { ...latestSettings, titleMode: 'custom', titleKind: 'custom' });
+});
+
+test('an update interrupted by deletion returns not found instead of claiming to save a deleted resume', async (t) => {
+  const f = await fixture(t);
+  await f.login();
+  const resume = buildResumeFromTemplate(RESUME_TEMPLATES[0], 'en');
+  const created = await f.request('/api/resumes', 'POST', { title: resume.title, resume, settings: DEFAULT_SETTINGS });
+  const { id } = await created.json();
+  const route = `/api/resumes/${id}`;
+
+  const started = once(f.app, 'request');
+  const pending = http.request(f.base + route, { method: 'PUT', headers: { Cookie: f.cookie, 'Content-Type': 'application/json' } });
+  t.after(() => pending.destroy());
+  const response = once(pending, 'response');
+  pending.write('{"title":');
+  await started;
+  assert.equal((await f.request(route, 'DELETE')).status, 200);
+  pending.end('"Deleted while uploading"}');
+  const [updated] = await response as [http.IncomingMessage];
+  updated.resume();
+  assert.equal(updated.statusCode, 404);
+  assert.equal((await f.request(route)).status, 404);
 });
 
 test('custom local credentials replace the demo; config never reveals the custom password', async (t) => {

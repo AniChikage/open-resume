@@ -1,6 +1,18 @@
+import { WORKSPACE_MESSAGES } from './workspace-messages.ts';
+import { DASHBOARD_MESSAGES } from './dashboard-messages.ts';
+import { CHECK_MESSAGES } from './check-messages.ts';
+import { VERSION_MESSAGES } from './version-messages.ts';
+import { IMPORT_MESSAGES } from './import-messages.ts';
+import { JOB_MATCH_MESSAGES } from './job-match-messages.ts';
 import { toTraditional } from './traditionalize.ts';
 
 export const TRANSLATIONS: Record<string, Record<string,string>> = {
+  ...WORKSPACE_MESSAGES,
+  ...DASHBOARD_MESSAGES,
+  ...CHECK_MESSAGES,
+  ...VERSION_MESSAGES,
+  ...IMPORT_MESSAGES,
+  ...JOB_MATCH_MESSAGES,
   "\"{name}\" and its saved content will be permanently deleted. This cannot be undone.": {"zh":"“{name}”及其已保存内容将被永久删除，且无法撤销。","zh-TW":"「{name}」及其已儲存內容將被永久刪除，且無法復原。","ja":"「{name}」と保存済みの内容は完全に削除され、元に戻せません。","ko":"“{name}”과 저장된 내용이 영구 삭제되며 되돌릴 수 없습니다.","fr":"« {name} » et son contenu enregistré seront supprimés définitivement. Cette action est irréversible.","ru":"«{name}» и сохранённое содержимое будут удалены навсегда. Отменить это действие нельзя."},
   "\"{name}\" will not be deleted, and you can restore it at any time.": {"zh":"“{name}”不会被删除，你可以随时恢复。","zh-TW":"“{name}”不會被刪除，你可以隨時恢復。"},
   "A4 preview": {"zh":"A4 预览","zh-TW":"A4 預覽"},
@@ -185,7 +197,7 @@ export const TRANSLATIONS: Record<string, Record<string,string>> = {
   "Resume": {"zh":"简历","zh-TW":"簡歷"},
   "Resume Templates": {"zh":"简历模板","zh-TW":"簡歷模板","ja":"履歴書テンプレート","ko":"이력서 템플릿","fr":"Modèles de CV","ru":"Шаблоны резюме"},
   "Resume builder": {"zh":"简历工坊","zh-TW":"簡歷工坊"},
-  "Resume check": {"zh":"AI 诊断","zh-TW":"AI 診斷"},
+  "Resume check": {"zh":"简历检查","zh-TW":"履歷檢查","ja":"履歴書チェック","ko":"이력서 검사","fr":"Vérification du CV","ru":"Проверка резюме"},
   "Resume completeness": {"zh":"简历完成度","zh-TW":"簡歷完成度"},
   "Resume editor": {"zh":"简历编辑","zh-TW":"簡歷編輯"},
   "Resume name": {"zh":"简历名称","zh-TW":"簡歷名稱","ja":"履歴書名","ko":"이력서 이름","fr":"Nom du CV","ru":"Название резюме"},

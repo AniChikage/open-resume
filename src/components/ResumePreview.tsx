@@ -223,4 +223,3 @@ function ResumeItem({ kind, item }: {kind:string;item:ResumeItemData}) {
     </div>
   );
 }
-

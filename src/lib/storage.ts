@@ -10,6 +10,7 @@ const clone = <T,>(value: T): T =>
 async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
   const res = await fetch(`/api/resumes${path}`, {
     headers: { 'Content-Type': 'application/json' },
+    signal: AbortSignal.timeout(20_000),
     ...options,
   });
   if (res.status === 401) throw new Error('UNAUTHORIZED');
@@ -54,18 +55,20 @@ export async function createResume(resume: Resume | null = null, settings: Parti
   return { id: result.id, title: data.title, updatedAt: result.updated_at || Date.now(), resume: data.resume, settings: data.settings };
 }
 
-export async function saveResume(id: string, resume: Resume, settings: ResumeSettings) {
+export async function saveResume(id: string, resume: Resume, settings: ResumeSettings, { keepalive = false } = {}) {
+  const body = JSON.stringify({ title: resume.title, resume, settings });
   await api(`/${id}`, {
     method: 'PUT',
-    body: JSON.stringify({ title: resume.title, resume, settings }),
+    body,
+    keepalive: keepalive && new TextEncoder().encode(body).byteLength < 60_000,
   });
 }
 
-export async function duplicateResume(id: string) {
+export async function duplicateResume(id: string, title?: string) {
   const source = await getResume(id);
   if (!source) return null;
   return createResume(
-    { ...source.resume, title: `${source.title} (copy)` },
+    { ...source.resume, title: title || `${source.title} (copy)` },
     { ...source.settings, titleMode: 'custom', titleKind: 'custom' },
   );
 }

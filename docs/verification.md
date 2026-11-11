@@ -1,5 +1,14 @@
 # Verification
 
+## First stable release · 2026-10-27
+
+- Validated the published `main` baseline (`261efca`) in an isolated checkout; existing uncommitted work was kept separate.
+- All 72 regression tests, strict TypeScript checking, and the production build passed on the host. The Docker build also ran all 72 tests and the type-checked build with networking disabled.
+- Found and fixed a production-image startup failure: `server/app.ts` imports `src/lib/version-types.ts`, which was missing from the runtime stage. The Dockerfile now copies that module and imports the server module in the final stage, as the `node` user and with networking disabled, to detect missing runtime dependencies during builds.
+- The resulting `1.0.0` image ran on Node.js 24.22.1 / Linux ARM64 as UID 1000. Actual container HTTP checks passed for health, the built homepage, demo login, resume creation, editing, and a named snapshot.
+- Restarted the container using the same named data volume. The edited resume and named snapshot persisted; restoring the snapshot created a new resume with the historical content and preserved the source document.
+- Version metadata, the `v1.0.0` Git tag, the changelog, and the version-pinned English/Chinese installation instructions describe the same release. Linux AMD64 was not tested in this run.
+
 ## TypeScript migration · 2026-10-20
 
 - Migrated the frontend, local HTTP/SQLite server, tests, and Vite configuration
@@ -135,3 +144,8 @@ not a hosted production deployment or a real AI provider transaction.
 - Production module workers require JavaScript MIME for `.mjs`; the server now supplies it, with a GET/HEAD regression test. JustCV prerendering has an isolated Vite dependency cache, preventing builds from invalidating a running editor's lazy Word-export module. The unused remote Inter stylesheet was removed; the interface uses bundled Geist.
 - Docker: `docker compose config --quiet` and the rebuilt `open-resume:p0-20261109` image passed. All 40 tests and the strict production build ran in the Linux build stage with external networking disabled for that stage. The final container ran Node.js 24.22.2 / UID 1000 on ARM64, became healthy, and passed actual browser login, Letter editing/save, PDF/Word/PNG/JSON downloads and private-path isolation. After restarting the same container and named volume, the full saved content/settings SHA-256 stayed identical and health recovered. The temporary QA container and synthetic volume were removed afterward; the image remains available locally.
 - Scope: local working copies only. No push, live deployment, paid provider call or live payment was made. The Browser plugin was not available, so browser verification used regular Playwright with a local Chromium executable. Safari/Firefox and every individual template were not exhaustively tested.
+
+
+## Studio integration verification — 2026-11-11
+
+Merged the Studio/PDF work with the existing v1.0.0 Docker runtime fixes and data features. The combined version passed 103 Node tests, strict TypeScript and a clean production build. Browser checks cover library search/sort/rename/duplicate, named server snapshots, existing browser snapshots, the local job matching panel, all four editor modes at 320 px, and PDF/Word/PNG/JSON downloads. Four dense fixtures produced nine A4/Letter English/Chinese PDF pages with zero differing preview pixels. A regression check preserves Letter geometry in shared snapshots. Docker ran the same production flows and preserved resume/settings checksums when replacing the container on the same volume. No paid AI call was made.

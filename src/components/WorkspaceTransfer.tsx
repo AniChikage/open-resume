@@ -11,8 +11,8 @@ import { Textarea } from './ui/textarea.tsx';
 import { Field, FieldDescription, FieldGroup, FieldLabel } from './ui/field.tsx';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog.tsx';
 
-export default function WorkspaceTransfer({ resumes, onImported }: { resumes: ResumeEntry[]; onImported: (entries: ResumeEntry[], openEditor: boolean) => void }) {
-  const { lang } = useTheme();
+export default function WorkspaceTransfer({ resumes, onImported, backupOnly = false }: { backupOnly?: boolean; resumes: ResumeEntry[]; onImported: (entries: ResumeEntry[], openEditor: boolean) => void }) {
+  const { lang, t } = useTheme();
   const copy = (key: Parameters<typeof transferText>[1]) => transferText(lang, key);
   const [open, setOpen] = useState(false);
   const [documents, setDocuments] = useState<EditorDocument[]>([]);
@@ -85,14 +85,14 @@ export default function WorkspaceTransfer({ resumes, onImported }: { resumes: Re
   };
   const draft = documents[0];
   return <>
-    <Button variant="outline" onClick={() => { setError(''); setNotice(''); setOpen(true); }}><FileUp data-icon="inline-start" />{copy('import')}</Button>
+    <Button variant="outline" onClick={() => { setError(''); setNotice(''); setOpen(true); }}><FileUp data-icon="inline-start" />{backupOnly ? t('Import JSON backup') : copy('import')}</Button>
     <Button variant="outline" onClick={backup}><Download data-icon="inline-start" />{copy('backup')}</Button>
     {!open && (error || notice) && <p role={error ? 'alert' : 'status'} className={`basis-full text-sm ${error ? 'text-destructive' : 'text-muted-foreground'}`}>{error || notice}</p>}
     <Dialog open={open} onOpenChange={changeOpen}>
       <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-2xl" closeLabel={copy('close')} showCloseButton={busy !== 'creating'}>
-        <DialogHeader><DialogTitle>{copy('title')}</DialogTitle><DialogDescription>{copy('intro')}</DialogDescription></DialogHeader>
+        <DialogHeader><DialogTitle>{backupOnly ? t('Import JSON backup') : copy('title')}</DialogTitle><DialogDescription>{copy('intro')}</DialogDescription></DialogHeader>
         <FieldGroup>
-          <Field><FieldLabel htmlFor="resume-import-file">{copy('file')}</FieldLabel><Input id="resume-import-file" type="file" accept=".pdf,.json,application/pdf,application/json" disabled={!!busy} onChange={(event) => { void choose(event.target.files?.[0]); event.target.value = ''; }} /><FieldDescription>PDF / JSON · 25 MB · PDF ≤ 30 {lang.startsWith('zh') ? '页' : 'pages'}</FieldDescription></Field>
+          <Field><FieldLabel htmlFor="resume-import-file">{copy('file')}</FieldLabel><Input id="resume-import-file" type="file" accept={backupOnly ? ".json,application/json" : ".pdf,.json,application/pdf,application/json"} disabled={!!busy} onChange={(event) => { void choose(event.target.files?.[0]); event.target.value = ''; }} /><FieldDescription>{backupOnly ? 'JSON · 25 MB' : `PDF / JSON · 25 MB · PDF ≤ 30 ${lang.startsWith('zh') ? '页' : 'pages'}`}</FieldDescription></Field>
           {busy && <p role="status" className="flex items-center gap-2 text-sm"><Loader2 className="size-4 animate-spin" />{copy(busy)} {progress && <span>{copy('progress')}: {progress}</span>}</p>}
           {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
           {notice && <p role="status" className="text-sm text-muted-foreground">{notice}</p>}

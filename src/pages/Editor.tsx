@@ -2,7 +2,7 @@ import { ResumePreview } from '../components/ResumePreview.tsx';
 import {
 BadgeCheck,Bold,BriefcaseBusiness,Calendar,CheckCircle2,ChevronDown,ChevronLeft,ChevronRight,
 CircleAlert,
-Download,Eraser,Eye,FileJson,FileText,Gauge,GraduationCap,Home,
+Download,Eraser,Eye,FileJson,FileText,Gauge,GraduationCap,History,Home,Wrench,
 ImageDown,Italic,Layers3,LayoutTemplate,Link2,
 List,ListOrdered,
 Loader2,
@@ -13,11 +13,15 @@ Undo2,
 UsersRound,X,
 } from 'lucide-react';
 import type * as React from 'react';
-import { lazy,Suspense,useEffect,useId,useLayoutEffect,useRef,useState } from 'react';
+import { lazy,Suspense,useEffect,useId,useLayoutEffect,useMemo,useRef,useState,useSyncExternalStore } from 'react';
 import { EditorTemplatePicker } from '../components/EditorTemplatePicker.tsx';
 import { LanguageMenu } from '../components/SiteChrome.tsx';
 import TailorResumeDialog from '../components/TailorResumeDialog.tsx';
 import ResumeHistory from '../components/ResumeHistory.tsx';
+import { createAutosave } from '../lib/autosave.ts';
+import { readDraft, writeDraft, removeDraft } from '../lib/drafts.ts';
+import { useAuth } from '../lib/auth.tsx';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuTrigger } from '../components/ui/dropdown-menu.tsx';
 import { transferText } from '../lib/transfer-copy.ts';
 import { Badge } from '../components/ui/badge.tsx';
 import { Button } from '../components/ui/button.tsx';
@@ -47,6 +51,9 @@ import { downloadPdfSnapshot, downloadPdfSnapshotAsPng } from '../lib/pdf-snapsh
 import { usePdfDocumentKey, usePdfPreview } from '../lib/use-pdf-preview.ts';
 import { getPdfFontKey } from '../lib/pdf-fonts.ts';
 const PdfResumePreview = lazy(() => import('../components/PdfResumePreview.tsx'));
+
+const VersionHistoryDialog = lazy(() => import('../components/VersionHistoryDialog.tsx'));
+const JobMatchPanel = lazy(() => import('../components/JobMatchPanel.tsx'));
 
 const iconMap: Record<string, import("lucide-react").LucideIcon> = {
   BadgeCheck, BriefcaseBusiness, FileText, GraduationCap,
@@ -322,6 +329,10 @@ export default function Editor({ resumeId }: {resumeId:string}) {
   const [activeItemId, setActiveItemId] = useState<string|null>(null);
   const [savedAt, setSavedAt] = useState('Just now');
   const [shareUrl, setShareUrl] = useState('');
+  const [versionsOpen, setVersionsOpen] = useState(false);
+  const [browserHistoryOpen, setBrowserHistoryOpen] = useState(false);
+  const [jobMatchOpen, setJobMatchOpen] = useState(false);
+  const [tailorJobDescription, setTailorJobDescription] = useState('');
   const [tailorSnapshot, setTailorSnapshot] = useState<EditorDocument|null>(null);
   const [loadError, setLoadError] = useState(false);
   const [loadAttempt, setLoadAttempt] = useState(0);
@@ -349,32 +360,48 @@ export default function Editor({ resumeId }: {resumeId:string}) {
   }, []);
 
 
+  const loadedRef = useRef(false);
+  const { user } = useAuth();
+  const username = user?.username || '';
+  const autosave = useMemo(() => createAutosave<EditorDocument>({
+    save: (document, keepalive) => saveResume(resumeId, document.resume, document.settings, { keepalive }),
+    writeDraft: document => writeDraft(resumeId, username, document),
+    clearDraft: document => removeDraft(resumeId, username, document),
+  }), [resumeId, username]);
+  const { dirty, saving, error: saveFailure, draftAvailable } = useSyncExternalStore(autosave.subscribe, autosave.getSnapshot);
+  const saveError = !saveFailure ? '' : errorMessage(saveFailure) === 'UNAUTHORIZED'
+    ? t('Your session expired. Sign in again to save.')
+    : t(draftAvailable ? 'Save failed. Your changes are cached locally.' : 'Save failed and browser storage is unavailable. Keep this tab open and try again.');
+
+  useEffect(() => {
+    const unsubscribe = history.subscribe(() => {
+      const document = history.getSnapshot().present;
+      if (loadedRef.current && document.resume) autosave.update({ resume: document.resume, settings: document.settings });
+    });
+    return () => { unsubscribe(); void autosave.flush(); };
+  }, [history, autosave]);
+
   useEffect(() => {
     setLoadError(false);
     loadedRef.current = false;
     previousLangRef.current = null;
     let cancelled = false;
-    const cacheKey = `draft_${resumeId}`;
-    const cached = sessionStorage.getItem(cacheKey);
+    const cached = readDraft(resumeId, username);
     if (cached) {
-      try {
-        const cachedDocument: unknown = JSON.parse(cached);
-        if (!isEditorDocument(cachedDocument)) throw new Error('INVALID_DRAFT');
-        const { resume: r, settings: s } = cachedDocument;
-        history.reset({ resume: normalizeResumeShape(r), settings: normalizeSettingsShape(s) });
-        setDirty(true);
-        setTimeout(() => { loadedRef.current = true; }, 0);
-        return;
-      } catch {}
+      const document = { resume: normalizeResumeShape(cached.resume), settings: normalizeSettingsShape(cached.settings) };
+      history.reset(document);
+      loadedRef.current = true;
+      autosave.update(document);
+      return;
     }
     getResume(resumeId).then((stored) => {
       if (cancelled) return;
       if (!stored) { setLoadError(true); return; }
       history.reset({ resume: normalizeResumeShape(stored.resume), settings: normalizeSettingsShape(stored.settings) });
-      setTimeout(() => { loadedRef.current = true; }, 0);
+      loadedRef.current = true;
     }).catch(() => { if (!cancelled) setLoadError(true); });
     return () => { cancelled = true; };
-  }, [resumeId, loadAttempt]);
+  }, [resumeId, loadAttempt, username, autosave, history]);
 
   useEffect(() => {
     if (!resume || previousLangRef.current === lang) return;
@@ -389,62 +416,28 @@ export default function Editor({ resumeId }: {resumeId:string}) {
     });
   }, [lang, resume, settings.template, settings.titleKind, settings.titleMode]);
 
-  const [saving, setSaving] = useState(false);
-  const [dirty, setDirty] = useState(false);
-  const loadedRef = useRef(false);
-
-  useEffect(() => {
-    if (!loadedRef.current) return;
-    setDirty(true);
-    const cacheKey = `draft_${resumeId}`;
-    sessionStorage.setItem(cacheKey, JSON.stringify({ resume, settings }));
-  }, [resume, settings, resumeId]);
-
-  const [saveError, setSaveError] = useState('');
-  const savingRef = useRef(false);
-
   const handleSave = async () => {
-    if (!resume || savingRef.current) return;
-    savingRef.current = true;
-    setSaving(true);
-    setSaveError('');
-    const savedDocument = history.getSnapshot().present;
-    try {
-      await saveResume(resumeId, savedDocument.resume!, savedDocument.settings);
-      // A save finishing after a new edit/undo must not discard that newer draft.
-      if (history.getSnapshot().present === savedDocument) {
-        sessionStorage.removeItem(`draft_${resumeId}`);
-        setDirty(false);
-      }
-      setSavedAt('Just now');
-    } catch (err) {
-      if (errorMessage(err) === 'UNAUTHORIZED') {
-        setSaveError(t('Your session expired. Sign in again to save.'));
-      } else {
-        setSaveError(t('Save failed. Your changes are cached locally.'));
-      }
-    } finally {
-      savingRef.current = false;
-      setSaving(false);
-    }
+    if (await autosave.flush()) setSavedAt('Just now');
   };
 
   useEffect(() => {
-    if (!loadedRef.current || !dirty || saving) return;
-    const timer = setTimeout(() => { handleSave(); }, 10000);
-    return () => clearTimeout(timer);
-  }, [resume, settings, dirty, saving]);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 's') {
-        e.preventDefault();
-        handleSave();
+    const onKey = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') {
+        event.preventDefault();
+        void autosave.flush();
       }
     };
+    const onHidden = () => { if (document.visibilityState === 'hidden') void autosave.flush(true); };
+    const onPageHide = () => { void autosave.flush(true); };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [resume, settings]);
+    window.addEventListener('pagehide', onPageHide);
+    document.addEventListener('visibilitychange', onHidden);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('pagehide', onPageHide);
+      document.removeEventListener('visibilitychange', onHidden);
+    };
+  }, [autosave]);
 
   useEffect(() => {
     if (!exportOpen) return undefined;
@@ -593,13 +586,21 @@ export default function Editor({ resumeId }: {resumeId:string}) {
     try { await navigator.clipboard.writeText(url); return true; } catch { return false; }
   };
   const handleCheck = () => selectView('check');
+  const openTailor = (jobDescription = '') => { setTailorJobDescription(jobDescription); setTailorSnapshot({ resume: clone(resume), settings: clone(settings) }); };
   return (
     <div ref={editorRoot} className="editor-root flex h-screen flex-col overflow-hidden bg-background">
       {deleteNotice === history.getSnapshot().present && canUndo && <div role="status" className="fixed bottom-5 left-1/2 z-40 flex -translate-x-1/2 items-center gap-3 rounded-lg border border-border bg-card p-3 shadow-lg">
         <span className="text-sm">{t('Deleted')}</span><Button variant="outline" size="sm" onClick={() => { history.undo(); setDeleteNotice(null); }}>{t('Undo')}</Button>
       </div>}
       <TopBar
-        historyControl={<ResumeHistory resumeId={resumeId} document={history.getSnapshot().present as EditorDocument} onRestore={(document) => history.commit(document)} />}
+        historyControl={<DropdownMenu>
+          <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label={t('Resume tools')} title={t('Resume tools')} />}><Wrench /></DropdownMenuTrigger>
+          <DropdownMenuContent align="end"><DropdownMenuGroup>
+            <DropdownMenuItem onClick={async () => { await autosave.flush(); setVersionsOpen(true); }}><History />{t('Version history')}</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setBrowserHistoryOpen(true)}><History />{t('Browser history')}</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setJobMatchOpen(true)}><BriefcaseBusiness />{t('Job matching')}</DropdownMenuItem>
+          </DropdownMenuGroup></DropdownMenuContent>
+        </DropdownMenu>}
         canUndo={canUndo} canRedo={canRedo} onUndo={() => { history.undo(); setDeleteNotice(null); }} onRedo={history.redo}
         resume={resume}
         savedAt={savedAt} dirty={dirty} saving={saving} saveError={saveError} onSave={handleSave}
@@ -610,7 +611,7 @@ export default function Editor({ resumeId }: {resumeId:string}) {
         onExportToggle={() => setExportOpen((v) => !v)}
         onExport={handleExport}
       />
-      <EditorModes activeView={activeView} onActiveView={selectView} previewOnly={previewOnly} onPreview={() => setPreviewOnly(value => !value)} onTailor={() => setTailorSnapshot({ resume: clone(resume), settings: clone(settings) })} />
+      <EditorModes activeView={activeView} onActiveView={selectView} previewOnly={previewOnly} onPreview={() => setPreviewOnly(value => !value)} onTailor={() => openTailor()} />
       <div className="shrink-0 border-b border-border bg-card px-4 py-1.5 sm:hidden">
         <input className="w-full min-w-0 truncate rounded bg-transparent text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring" aria-label={t('Resume name')} value={resume.title} onChange={(event) => updateTitle(event.target.value)} />
       </div>
@@ -655,7 +656,12 @@ export default function Editor({ resumeId }: {resumeId:string}) {
         </Suspense>
       </main>
       {managerOpen && <ModuleManager resume={resume} onClose={() => setManagerOpen(false)} onAddSection={addSection} onSection={updateSection} onMoveSection={moveSection} onDeleteSection={deleteSection} />}
-      {tailorSnapshot && <TailorResumeDialog key={resumeId} snapshot={tailorSnapshot} currentResume={resume} onClose={() => setTailorSnapshot(null)} />}
+      <ResumeHistory resumeId={resumeId} document={history.getSnapshot().present as EditorDocument} onRestore={document => history.commit(document)} open={browserHistoryOpen} onOpenChange={setBrowserHistoryOpen} showTrigger={false} />
+      <Suspense fallback={<Skeleton className="fixed right-4 top-20 h-20 w-64" />}>
+        {versionsOpen && <VersionHistoryDialog resumeId={resumeId} document={history.getSnapshot().present as EditorDocument} onClose={() => setVersionsOpen(false)} beforeRestore={() => autosave.flush()} onRestored={id => navigate(`/editor/${id}`)} />}
+        {jobMatchOpen && <JobMatchPanel resumeId={resumeId} resume={resume} onClose={() => setJobMatchOpen(false)} onLocate={id => { setJobMatchOpen(false); locateFromPreview(id); }} onTailor={job => { setJobMatchOpen(false); openTailor(job?.jobDescription); }} />}
+      </Suspense>
+      {tailorSnapshot && <TailorResumeDialog key={resumeId} snapshot={tailorSnapshot} currentResume={resume} initialJobDescription={tailorJobDescription} onClose={() => setTailorSnapshot(null)} />}
     </div>
   );
 }
@@ -665,7 +671,7 @@ function TopBar({ historyControl, canUndo, canRedo, onUndo, onRedo, resume, save
   return (
     <header className="editor-topbar flex h-14 shrink-0 items-center gap-3 border-b border-border bg-card px-3 sm:px-4">
       <div className="flex min-w-0 items-center gap-2">
-        <Button variant="ghost" size="sm" className="shrink-0" onClick={() => navigate('/dashboard')} aria-label={t('Back to My Resumes')}>
+        <Button variant="ghost" size="sm" className="shrink-0" onClick={async () => { await onSave(); navigate('/dashboard'); }} aria-label={t('Back to My Resumes')}>
           <Home size={14} /> <span className="hidden sm:inline">{t('My Resumes')}</span>
         </Button>
         <Button

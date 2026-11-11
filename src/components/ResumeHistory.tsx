@@ -10,12 +10,14 @@ import { transferText } from '../lib/transfer-copy.ts';
 import { Button } from './ui/button.tsx';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog.tsx';
 
-export default function ResumeHistory({ resumeId, document, onRestore }: { resumeId: string; document: EditorDocument; onRestore: (document: EditorDocument) => void }) {
+export default function ResumeHistory({ resumeId, document, onRestore, open: controlledOpen, onOpenChange, showTrigger = true }: { resumeId: string; document: EditorDocument; onRestore: (document: EditorDocument) => void; open?: boolean; onOpenChange?: (open: boolean) => void; showTrigger?: boolean }) {
   const { user } = useAuth();
   const { lang } = useTheme();
   const copy = (key: Parameters<typeof transferText>[1]) => transferText(lang, key);
   const scope = `${user?.id || 'anonymous'}:${resumeId}`;
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = controlledOpen ?? internalOpen;
+  const setOpen = (value: boolean) => { setInternalOpen(value); onOpenChange?.(value); };
   const [versions, setVersions] = useState<ResumeVersion[]>([]);
   const [selected, setSelected] = useState('');
   const [error, setError] = useState(false);
@@ -38,6 +40,7 @@ export default function ResumeHistory({ resumeId, document, onRestore }: { resum
       setVersions(items); setSelected(items[1]?.id || items[0]?.id || '');
     } catch { setError(true); } finally { setBusy(false); }
   };
+  useEffect(() => { if (controlledOpen) void show(); }, [controlledOpen]);
   const version = versions.find((item) => item.id === selected);
   const restore = async () => {
     if (!version || busy) return;
@@ -49,7 +52,7 @@ export default function ResumeHistory({ resumeId, document, onRestore }: { resum
     } catch { setError(true); } finally { setBusy(false); }
   };
   return <>
-    <Button variant="ghost" size="icon-sm" onClick={show} aria-label={copy('history')} title={copy('history')} disabled={!user}><History /></Button>
+    {showTrigger && <Button variant="ghost" size="icon-sm" onClick={show} aria-label={copy('history')} title={copy('history')} disabled={!user}><History /></Button>}
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-xl" closeLabel={copy('close')}>
         <DialogHeader><DialogTitle>{copy('history')}</DialogTitle><DialogDescription>{copy('historyNote')}</DialogDescription></DialogHeader>
