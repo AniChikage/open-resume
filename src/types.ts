@@ -14,11 +14,47 @@ export interface ResumeItem {
   startDate?: string; endDate?: string; current?: boolean; period?: string;
   location?: string; meta?: string; description?: string;
   bullets?: string[]; details?: string[]; values?: string[];
+  // Alternative wordings of this item (e.g. "Short", "Backend focus"), selected by presets.
+  versions?: ItemVersion[];
+}
+// Text fields of an item that a version or a translation may override.
+// Dates and flags are language-neutral, so they are deliberately excluded.
+export type ItemText = Partial<Pick<ResumeItem,
+  'title' | 'body' | 'school' | 'major' | 'degree' | 'org' | 'role' | 'department' | 'location'
+  | 'meta' | 'description' | 'period' | 'bullets' | 'details' | 'values'>>;
+// A named, user-written alternative of an item. `content` only lists the fields
+// that differ from the item itself; every other field is inherited.
+export interface ItemVersion { id: string; name: string; content: ItemText }
+export interface ItemTranslation {
+  base?: ItemText;                          // translation of the item's own text
+  versions?: Record<string, ItemText>;      // translation of each version's overridden text, by version id
+  same?: boolean;                           // the item needs no translation (names, technical terms...)
+}
+export interface Translation {
+  profile?: Partial<Pick<ResumeProfile, 'headline' | 'city' | 'status'>>;
+  sections?: Record<string, { label?: string }>;
+  items?: Record<string, ItemTranslation>;
+}
+export interface PresetItemChoice { hidden?: boolean; version?: string }
+// A named selection used to tailor the resume to a target job. Anything not
+// listed shows the item's default content.
+export interface Preset {
+  id: string; name: string;
+  items: Record<string, PresetItemChoice>;
+  sections?: Record<string, { hidden?: boolean }>;
+}
+// Everything needed to produce several renderings of one resume. It lives inside
+// the resume JSON because the server only persists the `resume` and `settings` columns.
+export interface Variants {
+  v: 1;
+  sourceLocale: string;                      // language the resume content is written in
+  presets: Preset[];
+  translations: Record<string, Translation>; // by locale, e.g. "fr"
 }
 export interface ResumeSection {
   id: string; type: SectionType; label: string; visible: boolean; items: ResumeItem[];
 }
-export interface Resume { title: string; profile: ResumeProfile; sections: ResumeSection[] }
+export interface Resume { title: string; profile: ResumeProfile; sections: ResumeSection[]; variants?: Variants }
 export interface ResumeSettings {
   template: string; accent: string; fontFamily: string; fontSize: number;
   lineHeight: number; compact: boolean; paperSize?: 'a4' | 'letter';
