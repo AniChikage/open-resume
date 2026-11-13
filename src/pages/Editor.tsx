@@ -2,7 +2,7 @@ import { ResumePreview } from '../components/ResumePreview.tsx';
 import {
 BadgeCheck,Bold,BriefcaseBusiness,Calendar,CheckCircle2,ChevronDown,ChevronLeft,ChevronRight,
 CircleAlert,
-Download,Eraser,Eye,FileJson,FileText,Gauge,GraduationCap,History,Home,Wrench,
+Download,Eraser,Eye,EyeOff,FileJson,FileText,Gauge,GraduationCap,History,Home,Wrench,
 ImageDown,Italic,Layers3,LayoutTemplate,Link2,
 List,ListOrdered,
 Loader2,
@@ -42,7 +42,15 @@ import { useTheme } from '../lib/theme.tsx';
 import { useEditorHistory } from '../lib/use-editor-history.ts';
 import { cn } from '../lib/utils.ts';
 import { errorMessage,isEditorDocument } from '../lib/validation.ts';
-import type { EditorDocument,Resume,ResumeItem as ResumeItemData,ResumeProfile,ResumeSection as ResumeSectionData,ResumeSettings,SectionType,Setter,Translate } from '../types.ts';
+import type { EditorDocument,ItemText,Resume,ResumeItem as ResumeItemData,ResumeProfile,ResumeSection as ResumeSectionData,ResumeSettings,SectionType,Setter,Translate } from '../types.ts';
+import { ItemPresetBadge,ItemVersionsEditor } from '../components/ItemVariants.tsx';
+import type { FieldInputProps } from '../components/ItemVariants.tsx';
+import { PresetBar } from '../components/PresetBar.tsx';
+import { useActivePreset } from '../lib/use-active-preset.ts';
+import { useVariants,VariantsProvider } from '../lib/variants-context.ts';
+import type { VariantsApi } from '../lib/variants-context.ts';
+import { addItemVersion,createPreset,deleteItemVersion,deletePreset,duplicatePreset,findPreset,pruneVariants,renameItemVersion,renamePreset,setItemChoice,setSectionHidden,setVersionField } from '../lib/variants-edit.ts';
+import { resolveResume } from '../lib/variants.ts';
 
 import { EditorModes, ResumeCheckPanel, ResumeSharePanel } from '../components/EditorWorkspace.tsx';
 import { workspaceText } from '../lib/editor-workspace-copy.ts';
@@ -340,7 +348,12 @@ export default function Editor({ resumeId }: {resumeId:string}) {
   const exportMenuRef = useRef<HTMLDivElement | null>(null);
   const previousLangRef = useRef<string | null>(null);
   const [previewOnly, setPreviewOnly] = useState(false);
-  const pdfKey = usePdfDocumentKey(resume, settings, lang);
+  const [storedPresetId, selectPreset] = useActivePreset(resumeId);
+  // The preset only exists while the stored resume still has it (undo or deletion can remove it).
+  const presetId = resume && findPreset(resume, storedPresetId) ? storedPresetId : null;
+  // What is shown and exported: the resume with the active preset applied. The editor itself keeps working on `resume`.
+  const renderedResume = useMemo(() => resume ? resolveResume(resume, { presetId: presetId ?? undefined }).resume : null, [resume, presetId]);
+  const pdfKey = usePdfDocumentKey(renderedResume, settings, lang);
   const pdfPreview = usePdfPreview(paperRef, pdfKey);
   const latestDocumentKey = useRef(pdfKey);
   latestDocumentKey.current = pdfKey;
@@ -540,16 +553,36 @@ export default function Editor({ resumeId }: {resumeId:string}) {
   const updateItem = (sectionId: string, itemId: string, patch: Partial<ResumeItemData>) => updateResume((d) => { const s = d.sections.find((x) => x.id === sectionId); const item = s?.items.find((x) => x.id === itemId); if (item) Object.assign(item, patch); }, `item:${itemId}:${Object.keys(patch).sort().join()}`);
   const addSection = (type: SectionType = 'custom') => { const ns = { id: uid(), type, label: getSectionCopy(type, lang).label, visible: true, items: [createSectionItem(type, lang)] }; updateResume((d) => { d.sections.push(ns); }); setActiveItemId(ns.items[0].id); return ns.items[0].id; };
   const addItem = (section: ResumeSectionData) => { const item = createSectionItem(section.type, lang); updateResume((d) => { d.sections.find((x) => x.id === section.id)?.items.push(item); }); setActiveItemId(item.id); return item.id; };
-  const deleteSection = (id: string) => { updateResume((d) => { d.sections = d.sections.filter((x) => x.id !== id); }); setDeleteNotice(history.getSnapshot().present); };
-  const deleteItem = (sId: string, iId: string) => { updateResume((d) => { const s = d.sections.find((x) => x.id === sId); if (s) s.items = s.items.filter((x) => x.id !== iId); }); setDeleteNotice(history.getSnapshot().present); };
+  const deleteSection = (id: string) => { updateResume((d) => { d.sections = d.sections.filter((x) => x.id !== id); pruneVariants(d); }); setDeleteNotice(history.getSnapshot().present); };
+  const deleteItem = (sId: string, iId: string) => { updateResume((d) => { const s = d.sections.find((x) => x.id === sId); if (s) s.items = s.items.filter((x) => x.id !== iId); pruneVariants(d); }); setDeleteNotice(history.getSnapshot().present); };
   const moveSection = (id: string, dir: number) => updateResume((d) => { const i = d.sections.findIndex((x) => x.id === id); const t = i + dir; if (i < 0 || t < 0 || t >= d.sections.length) return; const [s] = d.sections.splice(i, 1); d.sections.splice(t, 0, s); });
   const handleAvatar = (file: File | undefined) => { if (!file) return; const r = new FileReader(); r.onload = () => updateProfile('avatar', String(r.result || '')); r.readAsDataURL(file); };
+
+  // Everything the preset and version controls may do, expressed as resume edits (undoable like any other).
+  const variantsApi: VariantsApi = {
+    presets: resume.variants?.presets ?? [],
+    presetId,
+    selectPreset,
+    createPreset: (name) => { const id = uid(); updateResume((d) => { createPreset(d, name, id); }); selectPreset(id); },
+    renameActivePreset: (name) => { if (presetId) updateResume((d) => renamePreset(d, presetId, name)); },
+    duplicateActivePreset: (name) => { if (!presetId) return; const id = uid(); updateResume((d) => { duplicatePreset(d, presetId, name, id); }); selectPreset(id); },
+    deleteActivePreset: () => { if (!presetId) return; updateResume((d) => deletePreset(d, presetId)); selectPreset(null); },
+    choiceFor: (itemId) => presetId ? findPreset(resume, presetId)?.items[itemId] : undefined,
+    setChoice: (itemId, choice) => { if (presetId) updateResume((d) => setItemChoice(d, presetId, itemId, choice)); },
+    isSectionHidden: (sectionId) => Boolean(presetId && findPreset(resume, presetId)?.sections?.[sectionId]?.hidden),
+    setSectionHidden: (sectionId, hidden) => { if (presetId) updateResume((d) => setSectionHidden(d, presetId, sectionId, hidden)); },
+    addVersion: (itemId, name) => updateResume((d) => { addItemVersion(d, itemId, name, uid()); }),
+    renameVersion: (itemId, versionId, name) => updateResume((d) => renameItemVersion(d, itemId, versionId, name)),
+    deleteVersion: (itemId, versionId) => updateResume((d) => deleteItemVersion(d, itemId, versionId)),
+    setVersionField: (itemId, versionId, field, value) => updateResume((d) => setVersionField(d, itemId, versionId, field, value as never), `version:${versionId}:${field}`),
+  };
 
   const handleExport = async (type: string) => {
     if (!paperRef.current || isExporting) return;
     setExportFeedback(null);
     setIsExporting(type); setExportOpen(false);
-    const base = resume.title || resume.profile.name || 'resume';
+    const presetName = presetId ? findPreset(resume, presetId)?.name : undefined;
+    const base = [resume.title || resume.profile.name || 'resume', presetName?.replace(/[\\/:*?"<>|]+/g, '-')].filter(Boolean).join(' - ');
     try {
       if (type === 'pdf' || type === 'png') {
         const snapshot = await pdfPreview.getSnapshot();
@@ -557,7 +590,7 @@ export default function Editor({ resumeId }: {resumeId:string}) {
         else await downloadPdfSnapshotAsPng(snapshot, `${base}.png`);
       } else if (type === 'docx') {
         const { exportResumeAsDocx } = await import('../lib/docx-export.ts');
-        await exportResumeAsDocx({ resume, settings }, `${base}.docx`, lang);
+        await exportResumeAsDocx({ resume: renderedResume ?? resume, settings }, `${base}.docx`, lang);
       } else if (type === 'json') {
         const { exportResumeAsJson } = await import('../exporters.ts');
         exportResumeAsJson(resume, settings, `${base}.json`);
@@ -580,7 +613,7 @@ export default function Editor({ resumeId }: {resumeId:string}) {
 
   const handleShare = async () => {
     const key = pdfKey;
-    const url = await generateShareUrl(resume, settings);
+    const url = await generateShareUrl(renderedResume ?? resume, settings);
     if (key !== latestDocumentKey.current) throw new Error('PREVIEW_CHANGED');
     setShareUrl(url);
     try { await navigator.clipboard.writeText(url); return true; } catch { return false; }
@@ -588,6 +621,7 @@ export default function Editor({ resumeId }: {resumeId:string}) {
   const handleCheck = () => selectView('check');
   const openTailor = (jobDescription = '') => { setTailorJobDescription(jobDescription); setTailorSnapshot({ resume: clone(resume), settings: clone(settings) }); };
   return (
+    <VariantsProvider value={variantsApi}>
     <div ref={editorRoot} className="editor-root flex h-screen flex-col overflow-hidden bg-background">
       {deleteNotice === history.getSnapshot().present && canUndo && <div role="status" className="fixed bottom-5 left-1/2 z-40 flex -translate-x-1/2 items-center gap-3 rounded-lg border border-border bg-card p-3 shadow-lg">
         <span className="text-sm">{t('Deleted')}</span><Button variant="outline" size="sm" onClick={() => { history.undo(); setDeleteNotice(null); }}>{t('Undo')}</Button>
@@ -650,7 +684,7 @@ export default function Editor({ resumeId }: {resumeId:string}) {
             : activeView === 'share' ? <ResumeSharePanel key={pdfKey} url={shareUrl} onShare={handleShare} onExport={handleExport} isExporting={isExporting} />
             : <EditorPanel resume={resume} activeItemId={activeItemId} onProfile={updateProfile} onAvatar={handleAvatar} onSection={updateSection} onItem={updateItem} onAddItem={section => locateFromPreview(addItem(section))} onAddSection={type => locateFromPreview(addSection(type))} onDeleteSection={deleteSection} onDeleteItem={deleteItem} onMoveSection={moveSection} onActiveItem={setActiveItemId} onCheck={handleCheck} />}
         </div>
-        <div className="resume-pagination-measure" aria-hidden="true"><ResumePreview resume={resume} settings={settings} refNode={paperRef} /></div>
+        <div className="resume-pagination-measure" aria-hidden="true"><ResumePreview resume={renderedResume ?? resume} settings={settings} refNode={paperRef} /></div>
         <Suspense fallback={<div className={cn('min-h-0 items-center justify-center bg-muted/55', previewOnly ? 'flex' : 'hidden lg:flex')}><Loader2 className="animate-spin" /></div>}>
           <PdfResumePreview snapshot={pdfPreview.snapshot} pending={pdfPreview.pending} error={pdfPreview.error} onRetry={pdfPreview.retry} activeItemId={activeItemId} onLocate={locateFromPreview} className={previewOnly ? 'flex' : 'hidden lg:flex'} />
         </Suspense>
@@ -659,10 +693,11 @@ export default function Editor({ resumeId }: {resumeId:string}) {
       <ResumeHistory resumeId={resumeId} document={history.getSnapshot().present as EditorDocument} onRestore={document => history.commit(document)} open={browserHistoryOpen} onOpenChange={setBrowserHistoryOpen} showTrigger={false} />
       <Suspense fallback={<Skeleton className="fixed right-4 top-20 h-20 w-64" />}>
         {versionsOpen && <VersionHistoryDialog resumeId={resumeId} document={history.getSnapshot().present as EditorDocument} onClose={() => setVersionsOpen(false)} beforeRestore={() => autosave.flush()} onRestored={id => navigate(`/editor/${id}`)} />}
-        {jobMatchOpen && <JobMatchPanel resumeId={resumeId} resume={resume} onClose={() => setJobMatchOpen(false)} onLocate={id => { setJobMatchOpen(false); locateFromPreview(id); }} onTailor={job => { setJobMatchOpen(false); openTailor(job?.jobDescription); }} />}
+        {jobMatchOpen && <JobMatchPanel resumeId={resumeId} resume={renderedResume ?? resume}onClose={() => setJobMatchOpen(false)} onLocate={id => { setJobMatchOpen(false); locateFromPreview(id); }} onTailor={job => { setJobMatchOpen(false); openTailor(job?.jobDescription); }} />}
       </Suspense>
       {tailorSnapshot && <TailorResumeDialog key={resumeId} snapshot={tailorSnapshot} currentResume={resume} initialJobDescription={tailorJobDescription} onClose={() => setTailorSnapshot(null)} />}
     </div>
+    </VariantsProvider>
   );
 }
 
@@ -754,6 +789,7 @@ function EditorPanel({ resume, activeItemId, onProfile, onAvatar, onSection, onI
   return (
     <section className="editor-content-panel" aria-label={t('Resume editor')}>
       <div className="editor-content-heading"><h2>{workspaceText(lang, 'content')}</h2><p>{visualText(lang, 'contentHelp')}</p></div>
+      <PresetBar />
       <EditorOverview stats={stats} onCheck={onCheck} />
       <div data-editor-target="profile" onFocusCapture={() => onActiveItem("profile")}><ProfileEditor profile={resume.profile} onProfile={onProfile} onAvatar={onAvatar} /></div>
       {resume.sections.map((section, index) => (
@@ -887,14 +923,17 @@ function SectionEditor({ section, index, total, activeItemId, onSection, onItem,
   const { lang, t } = useTheme();
   const tpl = SECTION_TEMPLATES[section.type] ?? SECTION_TEMPLATES.custom;
   const Icon = iconMap[tpl.icon] ?? PlusCircle;
-  return <section data-editor-target={'section:' + section.id} className={cn('editor-section', !section.visible && 'opacity-60')}>
+  const variants = useVariants();
+  const hiddenByPreset = variants?.isSectionHidden(section.id) ?? false;
+  const versionControls = (item: ResumeItemData) => <ItemVersionsEditor section={section} item={item} FieldInput={VersionFieldInput} defaultText={field => itemDefaultText(tpl.kind, item, field)} />;
+  return <section data-editor-target={'section:' + section.id} className={cn('editor-section', (!section.visible || hiddenByPreset) && 'opacity-60')}>
     <details ref={node => { if (node && !node.dataset.inited) { node.open = section.type === 'summary'; node.dataset.inited = '1'; } }}>
-      <summary><Icon /><span>{section.label}</span><span className="editor-section-count">{section.items.length}</span><ChevronDown className="section-chevron" /></summary>
+      <summary><Icon /><span>{section.label}</span>{hiddenByPreset && <EyeOff size={13} aria-label={t('Hidden in this preset')} />}<span className="editor-section-count">{section.items.length}</span><ChevronDown className="section-chevron" /></summary>
       <div className="editor-section-body">
         {section.items.length === 0 && <p className="py-2 text-xs text-muted-foreground">{getSectionCopy(section.type, lang).empty}</p>}
-        {tpl.kind === 'text' && section.items.length === 1 ? <div data-editor-target={section.items[0].id} onFocusCapture={() => onActiveItem(section.items[0].id)}><EntryForm hideTitle section={section} item={section.items[0]} onItem={patch => onItem(section.id, section.items[0].id, patch)} /></div> : section.items.map((item, index) => <details key={item.id} data-editor-target={item.id} onFocusCapture={() => onActiveItem(item.id)} className="editor-entry" ref={node => { if (node && !node.dataset.inited) { node.open = index === 0; node.dataset.inited = '1'; } }} onClick={() => onActiveItem(item.id)}>
-          <summary className="flex cursor-pointer items-center gap-2 px-2 py-2 hover:bg-muted/50"><span className="min-w-0 flex-1 truncate">{getItemTitle(section, item, t)}</span><small className="max-w-24 truncate text-xs text-muted-foreground">{getItemMeta(section, item, t)}</small><span role="button" aria-label={t('Delete entry')} tabIndex={0} className="p-1 text-muted-foreground hover:text-destructive" onClick={event => { event.preventDefault(); event.stopPropagation(); onDeleteItem(section.id, item.id); }} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); event.stopPropagation(); onDeleteItem(section.id, item.id); } }}><Trash2 size={13} /></span></summary>
-          <div className="pb-3 pt-1"><EntryForm section={section} item={item} onItem={patch => onItem(section.id, item.id, patch)} /></div>
+        {tpl.kind === 'text' && section.items.length === 1 ? <div data-editor-target={section.items[0].id} onFocusCapture={() => onActiveItem(section.items[0].id)}><EntryForm hideTitle section={section} item={section.items[0]} onItem={patch => onItem(section.id, section.items[0].id, patch)} />{versionControls(section.items[0])}</div> : section.items.map((item, index) => <details key={item.id} data-editor-target={item.id} onFocusCapture={() => onActiveItem(item.id)} className={cn('editor-entry', variants?.choiceFor(item.id)?.hidden && 'opacity-60')} ref={node => { if (node && !node.dataset.inited) { node.open = index === 0; node.dataset.inited = '1'; } }} onClick={() => onActiveItem(item.id)}>
+          <summary className="flex cursor-pointer items-center gap-2 px-2 py-2 hover:bg-muted/50"><span className="min-w-0 flex-1 truncate">{getItemTitle(section, item, t)}</span><small className="max-w-24 truncate text-xs text-muted-foreground">{getItemMeta(section, item, t)}</small><ItemPresetBadge item={item} /><span role="button" aria-label={t('Delete entry')} tabIndex={0} className="p-1 text-muted-foreground hover:text-destructive" onClick={event => { event.preventDefault(); event.stopPropagation(); onDeleteItem(section.id, item.id); }} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); event.stopPropagation(); onDeleteItem(section.id, item.id); } }}><Trash2 size={13} /></span></summary>
+          <div className="pb-3 pt-1"><EntryForm section={section} item={item} onItem={patch => onItem(section.id, item.id, patch)} />{versionControls(item)}</div>
         </details>)}
         {tpl.kind !== 'text' && <Button variant="ghost" size="sm" className="justify-start" onClick={() => onAddItem(section)}><Plus data-icon="inline-start" />{t('Add another {section}', { section: section.label })}</Button>}
         <details className="editor-section-options"><summary>{visualText(lang, 'sectionOptions')}</summary><div className="editor-section-management">
@@ -902,6 +941,7 @@ function SectionEditor({ section, index, total, activeItemId, onSection, onItem,
           <button type="button" title={t('Move section up')} onClick={() => onMoveSection(section.id, -1)} disabled={index === 0}><MoveUp size={13} /></button>
           <button type="button" title={t('Move section down')} onClick={() => onMoveSection(section.id, 1)} disabled={index === total - 1}><MoveDown size={13} /></button>
           <button type="button" title={section.visible ? t('Hide section') : t('Show section')} onClick={() => onSection(section.id, { visible: !section.visible })}><Eye size={13} /></button>
+          {variants?.presetId && <button type="button" aria-pressed={hiddenByPreset} title={hiddenByPreset ? t('Show section in this preset') : t('Hide section in this preset')} onClick={() => variants.setSectionHidden(section.id, !hiddenByPreset)}><EyeOff size={13} /></button>}
           <button type="button" title={t('Delete section')} className="text-muted-foreground hover:text-destructive" onClick={() => onDeleteSection(section.id)}><Trash2 size={13} /></button>
         </div>{tpl.kind === 'text' && section.items.length === 1 && <Field label={t('Title')} value={section.items[0].title} onChange={value => onItem(section.id, section.items[0].id, { title: value })} />}
           {tpl.kind === 'text' && <Button variant="ghost" size="sm" className="justify-start" onClick={() => onAddItem(section)}><Plus data-icon="inline-start" />{t('Add another {section}', { section: section.label })}</Button>}
@@ -909,6 +949,20 @@ function SectionEditor({ section, index, total, activeItemId, onSection, onItem,
       </div>
     </details>
   </section>;
+}
+
+// The item's current text for a field: what a version starts from when the user chooses to reword that field.
+function itemDefaultText(kind: string, item: ResumeItemData, field: keyof ItemText): string {
+  if (field === 'body') return kind === 'education' ? getEducationBody(item) : kind === 'experience' ? getExperienceBody(item) : item.body ?? '';
+  const value = item[field];
+  return Array.isArray(value) ? value.join('\n') : value ?? '';
+}
+
+// Lets a version be edited with the same inputs as the item itself.
+function VersionFieldInput({ input, label, value, onChange }: FieldInputProps) {
+  if (input === 'rich') return <RichTextEditor label={label} value={value} onChange={onChange} />;
+  if (input === 'line') return <Field label={label} value={value} onChange={onChange} />;
+  return <TextArea label={label} value={value} onChange={onChange} />;
 }
 
 function EntryForm({ section, item, onItem, hideTitle = false }: {section:ResumeSectionData;item:ResumeItemData;onItem:(patch:Partial<ResumeItemData>) => void;hideTitle?:boolean}) {

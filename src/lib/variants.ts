@@ -120,17 +120,19 @@ function resolveSection(
   if (!section.visible || own(preset?.sections, section.id)?.hidden === true) {
     return { ...section, visible: false, items: section.items.map(plainItem) };
   }
-  let label = section.label;
-  if (translating && isFilled(label)) {
-    const translated = own(translation?.sections, section.id)?.label;
-    if (isFilled(translated)) label = translated as string;
-    else missing.push({ scope: 'section', sectionId: section.id, field: 'label' });
-  }
   const items: ResumeItem[] = [];
   for (const item of section.items) {
     const choice = own(preset?.items, item.id);
     if (choice?.hidden === true) continue;
     items.push(resolveItem(item, choice, translation, translating, section.id, missing));
+  }
+  // A preset that hides every item of a section hides the section too, instead of leaving a bare heading.
+  if (items.length === 0 && section.items.length > 0) return { ...section, visible: false, items: [] };
+  let label = section.label;
+  if (translating && isFilled(label)) {
+    const translated = own(translation?.sections, section.id)?.label;
+    if (isFilled(translated)) label = translated as string;
+    else missing.push({ scope: 'section', sectionId: section.id, field: 'label' });
   }
   return { ...section, label, items };
 }

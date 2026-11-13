@@ -104,6 +104,19 @@ test('a preset hides items and sections and keeps hidden sections invisible', ()
   }
 });
 
+test('a section whose items are all hidden by the preset disappears with them', () => {
+  const resume = fixture();
+  resume.variants!.presets[1].items['award-1'] = { hidden: true };
+  const rendered = resolveResume(resume, { presetId: 'p-infra' }).resume;
+  const awards = rendered.sections.find(section => section.id === 'awards')!;
+  assert.equal(awards.visible, false);
+  assert.deepEqual(awards.items, []);
+  // A section that was already empty in the stored resume is left as the user made it.
+  const empty = fixture();
+  empty.sections[1].items = [];
+  assert.equal(resolveResume(empty, { presetId: 'p-infra' }).resume.sections[1].visible, true);
+});
+
 test('a named version overrides only the fields it lists and inherits the rest', () => {
   const infra = workItems(resolveResume(fixture(), { presetId: 'p-infra' }).resume)[0];
   assert.deepEqual(infra.bullets, ['Cut cloud costs by 30%']);
