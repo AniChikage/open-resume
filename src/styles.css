@@ -503,6 +503,75 @@ html:is([lang="zh-CN"], [lang="zh-TW"]) .landing-shell {
   background: color-mix(in srgb, var(--accent) 10%, white);
 }
 
+/* Orbit template: navy band, orbit ellipses, orange satellite */
+.resume-paper.template-orbit { padding: 0 10mm 9mm; color: #1f2937; }
+.template-orbit .resume-bg-side { display: block; inset: 0 0 auto 0; height: 33mm; background: #0b1020; }
+.template-orbit .resume-bg-arc-1 { display: block; z-index: 1; right: -30mm; top: -6mm; width: 100mm; height: 40mm; border: 1.2px solid rgba(255,255,255,0.45); border-radius: 50%; transform: rotate(-14deg); }
+.template-orbit .resume-bg-arc-2 { display: block; z-index: 1; right: -13mm; top: 1mm; width: 66mm; height: 26mm; border: 1px solid rgba(255,255,255,0.28); border-radius: 50%; transform: rotate(-14deg); }
+.template-orbit .resume-bg-corner { display: block; z-index: 1; right: 65.6mm; top: 17.2mm; width: 3.2mm; height: 3.2mm; background: var(--accent); border-radius: 50%; }
+.template-orbit .resume-bg-stars { display: block; z-index: 1; left: 108mm; top: 2mm; width: 0.4mm; height: 0.4mm; border-radius: 50%; background: rgba(255,255,255,0.4);
+  box-shadow: 32.4mm 4.4mm 0 0mm rgba(255,255,255,0.5),
+    7.2mm 15.5mm 0 0.12mm rgba(255,255,255,0.3),
+    5.8mm 14.7mm 0 0mm rgba(255,255,255,0.18),
+    43.4mm 2.0mm 0 0.12mm rgba(255,255,255,0.18),
+    42.5mm 24.0mm 0 0mm rgba(255,255,255,0.18),
+    63.1mm 16.9mm 0 0.12mm rgba(255,255,255,0.18),
+    58.6mm 1.4mm 0 0mm rgba(255,255,255,0.18),
+    55.7mm 3.9mm 0 0mm rgba(255,255,255,0.3),
+    54.1mm 16.6mm 0 0.12mm rgba(255,255,255,0.5),
+    18.1mm 16.9mm 0 0mm rgba(255,255,255,0.5),
+    37.2mm 15.9mm 0 0.12mm rgba(255,255,255,0.18),
+    6.0mm 6.0mm 0 0.12mm rgba(255,255,255,0.5),
+    42.8mm 9.1mm 0 0mm rgba(255,255,255,0.5),
+    36.2mm 7.2mm 0 0.12mm rgba(255,255,255,0.18),
+    78.0mm 2.4mm 0 0.12mm rgba(255,255,255,0.3),
+    49.5mm 10.0mm 0 0mm rgba(255,255,255,0.3),
+    60.9mm 2.1mm 0 0mm rgba(255,255,255,0.5),
+    16.5mm 9.9mm 0 0mm rgba(255,255,255,0.3),
+    3.9mm 19.4mm 0 0.12mm rgba(255,255,255,0.5),
+    78.9mm 23.7mm 0 0.12mm rgba(255,255,255,0.3),
+    35.0mm 14.4mm 0 0mm rgba(255,255,255,0.3),
+    84.0mm 27.4mm 0 0.12mm rgba(255,255,255,0.3),
+    66.4mm 1.8mm 0 0mm rgba(255,255,255,0.5),
+    64.7mm 28.8mm 0 0mm rgba(255,255,255,0.3),
+    71.7mm 25.7mm 0 0mm rgba(255,255,255,0.3),
+    94.1mm 10.3mm 0 0mm rgba(255,255,255,0.5),
+    49.4mm 6.3mm 0 0mm rgba(255,255,255,0.3),
+    73.8mm 11.5mm 0 0mm rgba(255,255,255,0.3),
+    16.6mm 11.6mm 0 0mm rgba(255,255,255,0.3),
+    81.9mm 25.1mm 0 0.12mm rgba(255,255,255,0.3),
+    41.5mm 10.4mm 0 0mm rgba(255,255,255,0.3),
+    15.1mm 5.1mm 0 0.12mm rgba(255,255,255,0.18),
+    23.3mm 14.1mm 0 0mm rgba(255,255,255,0.5),
+    26.3mm 0.1mm 0 0.12mm rgba(255,255,255,0.3),
+    36.9mm 16.4mm 0 0.12mm rgba(255,255,255,0.18),
+    85.9mm 27.6mm 0 0.12mm rgba(255,255,255,0.5),
+    74.0mm 13.2mm 0 0.12mm rgba(255,255,255,0.5),
+    39.2mm 11.6mm 0 0mm rgba(255,255,255,0.18),
+    63.4mm 1.8mm 0 0mm rgba(255,255,255,0.18),
+    44.1mm 3.2mm 0 0mm rgba(255,255,255,0.5),
+    10.2mm 16.4mm 0 0mm rgba(255,255,255,0.5),
+    94.9mm 17.8mm 0 0mm rgba(255,255,255,0.18),
+    61.4mm 4.3mm 0 0mm rgba(255,255,255,0.3),
+    60.2mm 13.8mm 0 0mm rgba(255,255,255,0.18),
+    99.3mm 13.5mm 0 0mm rgba(255,255,255,0.3),
+    8.6mm 3.0mm 0 0.12mm rgba(255,255,255,0.3); }
+.template-orbit .resume-bg-planet { display: block; z-index: 2; right: 12.6mm; top: 6.6mm; width: 14.8mm; height: 14.8mm; border-radius: 50%; background: radial-gradient(circle at 36% 36%, #22306b 0, #22306b 24%, #16214a 25%, #16214a 100%); border: 1px solid rgba(255,255,255,0.14); box-sizing: border-box; }
+.template-orbit .orbit-header { height: 33mm; box-sizing: border-box; margin: 0 -10mm 12px; padding: 7mm 10mm 0; color: #fff; }
+.template-orbit .orbit-header :is(h1, .resume-name) { font-size: calc(var(--resume-size, 12px) * 26 / 13); line-height: 1.1; margin: 0 0 4px; color: #fff; letter-spacing: 0.01em; }
+.template-orbit .orbit-headline { margin: 0 0 8px; font-size: calc(var(--resume-size, 12px) * 13 / 13); font-weight: 700; color: var(--accent); text-transform: uppercase; letter-spacing: 0.08em; }
+.template-orbit .orbit-contact { margin: 0; font-size: calc(var(--resume-size, 12px) * 11.5 / 13); color: #cbd5e1; }
+.template-orbit .resume-section h2 { border: 0; border-left: 3px solid var(--accent); padding: 0 0 0 7px; color: #0b1020; letter-spacing: 0.08em; margin-bottom: 7px; }
+.template-orbit .resume-body { gap: 8px; }
+.template-orbit .section-content { gap: 4px; }
+.template-orbit .experience-item { margin-bottom: 2px; }
+.template-orbit .experience-meta { margin-bottom: 1px; }
+.template-orbit .experience-body { margin-top: 1px; }
+.template-orbit .experience-body li { margin-bottom: 1px; }
+.template-orbit .experience-top strong { color: #0b1020; }
+.template-orbit .experience-top span { color: var(--accent); font-weight: 600; }
+.template-orbit .skill-lines span { border-radius: 2px; background: #eef2f9; }
+
 .resume-paper.template-timeline {
   padding: 9mm 10mm;
 }

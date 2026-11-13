@@ -132,6 +132,8 @@ function ResumeBackground() {
       <span className="resume-bg-grid" />
       <span className="resume-bg-side" />
       <span className="resume-bg-corner" />
+      <span className="resume-bg-planet" />
+      <span className="resume-bg-stars" />
     </div>
   );
 }
@@ -157,6 +159,15 @@ function ResumeHeader({ profile, template, profileHeading }: {profile:ResumeProf
             {profile.website && <span className="rose-info-item"><strong>{t('Website')}</strong><em>{profile.website}</em></span>}
           </div>
         </div>
+      </header>
+    );
+  }
+  if (template === 'orbit') {
+    return (
+      <header data-preview-target="profile" className="resume-header orbit-header">
+        <NameTag className="resume-name">{profile.name || t('Name')}</NameTag>
+        {profile.headline && <p className="orbit-headline">{profile.headline}</p>}
+        <p className="orbit-contact">{[profile.phone, profile.email, profile.city, profile.website].filter(Boolean).join('  ·  ')}</p>
       </header>
     );
   }
