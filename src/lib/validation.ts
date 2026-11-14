@@ -36,7 +36,7 @@ function hasValidItemText(value: Record<string, unknown>): boolean {
 export function isItemText(value: unknown): value is ItemText {
   return isRecord(value) && hasValidItemText(value);
 }
-function isItemVersions(value: unknown): boolean {
+export function isItemVersions(value: unknown): boolean {
   if (!Array.isArray(value) || value.length > MAX_VERSIONS_PER_ITEM) return false;
   const ids = new Set<string>();
   for (const version of value) {

@@ -173,7 +173,7 @@ export const TRANSLATIONS: Record<string, Record<string,string>> = {
   "Phone": {"zh":"电话","zh-TW":"電話","ja":"電話","ko":"전화","fr":"Téléphone","ru":"Телефон"},
   "Photo optional": {"zh":"证件照可选","zh-TW":"證件照可選"},
   "Position / role": {"zh":"职位/角色","zh-TW":"職位/角色"},
-  "Present": {"zh":"至今","zh-TW":"至今"},
+  "Present": {"zh":"至今","zh-TW":"至今","fr":"Aujourd'hui","ja":"現在","ko":"현재","ru":"настоящее время"},
   "Present (current)": {"zh":"至今（仍在职）","zh-TW":"至今（仍在職）"},
   "Preview": {"zh":"预览","zh-TW":"預覽","ja":"プレビュー","ko":"미리보기","fr":"Aperçu","ru":"Предпросмотр"},
   "Preview with your content. Apply when ready.": {"zh":"使用当前内容预览，确认后再应用。","zh-TW":"使用目前內容預覽，確認後再套用。","ja":"現在の内容で確認し、準備ができたら適用します。","ko":"현재 내용으로 확인한 후 적용하세요.","fr":"Prévisualisez avec votre contenu, puis appliquez votre choix.","ru":"Просмотрите шаблон со своим содержанием, затем примените."},

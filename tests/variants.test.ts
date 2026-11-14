@@ -286,3 +286,35 @@ test('variants survive being saved to and loaded from the server', async (t) => 
   assert.ok(refused.status >= 400 && refused.status < 500, `unexpected status ${refused.status}`);
   assert.deepEqual(await load(id), edited);
 });
+
+test('version history snapshots keep variants, and restoring one restores them', async (t) => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'open-resume-variants-history-'));
+  const app = createApp({ dataDir: dir, env: {} });
+  app.listen(0, '127.0.0.1');
+  await once(app, 'listening');
+  t.after(async () => { app.close(); await once(app, 'close'); await rm(dir, { recursive: true, force: true }); });
+  const base = `http://127.0.0.1:${(app.address() as import('node:net').AddressInfo).port}`;
+  const login = await fetch(`${base}/api/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: 'admin', password: 'admin' }) });
+  const cookie = login.headers.get('set-cookie')!.split(';')[0];
+  const send = (route: string, method: string, value?: unknown) => fetch(base + route, {
+    method, headers: { Cookie: cookie, ...(value === undefined ? {} : { 'Content-Type': 'application/json' }) }, ...(value === undefined ? {} : { body: JSON.stringify(value) }),
+  });
+
+  const resume = fixture();
+  const created = await send('/api/resumes', 'POST', { title: resume.title, resume, settings: DEFAULT_SETTINGS });
+  const id = (await created.json()).id as string;
+
+  // A manual checkpoint of a resume with an extra preset.
+  const checkpoint = structuredClone(resume);
+  checkpoint.variants!.presets.push({ id: 'p-checkpoint', name: 'Checkpoint', items: {} });
+  const saved = await send(`/api/resumes/${id}/versions`, 'POST', { title: checkpoint.title, resume: checkpoint, settings: DEFAULT_SETTINGS, label: 'with preset' });
+  assert.equal(saved.status, 201);
+  const version = await saved.json();
+  assert.deepEqual(version.resume.variants, checkpoint.variants);
+
+  const restored = await send(`/api/resumes/${id}/versions/${version.id}/restore`, 'POST');
+  assert.equal(restored.status, 201);
+  const copyId = (await restored.json()).id as string;
+  const copy = await (await send(`/api/resumes/${copyId}`, 'GET')).json();
+  assert.deepEqual(copy.resume.variants, checkpoint.variants);
+});

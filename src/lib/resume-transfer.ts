@@ -1,5 +1,7 @@
 import { buildBlankResume, DEFAULT_SETTINGS, FONT_OPTIONS, RESUME_TEMPLATES, getSectionCopy } from '../data.ts';
-import type { EditorDocument, ResumeItem, ResumeSection, SectionType } from '../types.ts';
+import type { EditorDocument, ResumeItem, ResumeSection, SectionType, Variants } from '../types.ts';
+import { isItemVersions, isVariants } from './validation.ts';
+import { pruneVariants, remapVariantIds } from './variants-edit.ts';
 
 export const MAX_TRANSFER_BYTES = 25 * 1024 * 1024;
 export const MAX_BACKUP_DOCUMENTS = 100;
@@ -27,13 +29,23 @@ export function normalizeDocument(value: unknown): EditorDocument {
   for (const key of Object.keys(profile) as (keyof typeof profile)[]) profile[key] = text(sourceProfile[key], key === 'avatar' ? 6_000_000 : 2_000);
   // Never execute an imported URL. Embedded photos and ordinary HTTP(S) photos are retained.
   if (profile.avatar && !/^(?:data:image\/(?:png|jpe?g|webp);base64,|https?:\/\/|\/[^/])/i.test(profile.avatar)) profile.avatar = '';
+  // An import always gets fresh ids, so presets and translations (which refer to ids) are carried over through these maps.
+  const sectionIds = new Map<string, string>();
+  const itemIds = new Map<string, string>();
   const sections: ResumeSection[] = sourceSections.map((section: unknown) => {
     if (!record(section) || !types.has(section.type as SectionType) || !Array.isArray(section.items) || section.items.length > 500) throw new TransferError('invalidBackup');
     const type = section.type as SectionType;
-    return { id: crypto.randomUUID(), type, label: text(section.label, 200) || getSectionCopy(type, 'en').label, visible: section.visible !== false,
+    const sectionId = crypto.randomUUID();
+    if (typeof section.id === 'string') sectionIds.set(section.id, sectionId);
+    return { id: sectionId, type, label: text(section.label, 200) || getSectionCopy(type, 'en').label, visible: section.visible !== false,
       items: section.items.map((item: unknown) => {
         if (!record(item)) throw new TransferError('invalidBackup');
         const result: ResumeItem = { id: crypto.randomUUID() };
+        if (typeof item.id === 'string') itemIds.set(item.id, result.id);
+        if (item.versions !== undefined) {
+          if (!isItemVersions(item.versions)) throw new TransferError('invalidBackup');
+          result.versions = structuredClone(item.versions) as ResumeItem['versions'];
+        }
         for (const key of itemFields) if (item[key] !== undefined) result[key] = text(item[key]);
         for (const key of ['bullets', 'details', 'values'] as const) {
           if (item[key] === undefined) continue;
@@ -50,8 +62,15 @@ export function normalizeDocument(value: unknown): EditorDocument {
   });
   if (value.settings !== undefined && !record(value.settings)) throw new TransferError('invalidBackup');
   const settings = record(value.settings) ? value.settings : {};
+  let variants: Variants | undefined;
+  if (source.variants !== undefined) {
+    if (!isVariants(source.variants)) throw new TransferError('invalidBackup');
+    variants = remapVariantIds(source.variants, sectionIds, itemIds);
+  }
+  const resume = { title: text(source.title, 500) || profile.name || 'Imported resume', profile, sections, ...(variants ? { variants } : {}) };
+  pruneVariants(resume);
   return {
-    resume: { title: text(source.title, 500) || profile.name || 'Imported resume', profile, sections },
+    resume,
     settings: {
       ...DEFAULT_SETTINGS,
       template: RESUME_TEMPLATES.some((template) => template.id === settings.template) ? String(settings.template) : DEFAULT_SETTINGS.template,

@@ -107,7 +107,7 @@ export default function VersionHistoryDialog({ resumeId, document, onClose, befo
 
   const kindLabel = (kind: ResumeVersionSummary['kind']) => t(kind === 'initial' ? 'Initial version' : kind === 'auto' ? 'Automatic version' : 'Named snapshot');
   const date = (timestamp: number) => new Date(timestamp).toLocaleString(lang, { dateStyle: 'short', timeStyle: 'short' });
-  const hasChanges = comparison && (comparison.titleChanged || comparison.appearanceChanged || comparison.profileFields.length || comparison.changedSections.length);
+  const hasChanges = comparison && (comparison.titleChanged || comparison.appearanceChanged || comparison.variantsChanged || comparison.profileFields.length || comparison.changedSections.length);
   const orderChanged = selected && JSON.stringify(document.resume.sections.map(section => section.id)) !== JSON.stringify(selected.resume.sections.map(section => section.id));
   return <Dialog open onOpenChange={open => { if (!open && !busyRef.current) onClose(); }}>
     <DialogContent closeLabel={t('Close')} showCloseButton={!busy} className="flex max-h-[90dvh] flex-col overflow-hidden sm:max-w-5xl">
@@ -146,6 +146,7 @@ export default function VersionHistoryDialog({ resumeId, document, onClose, befo
               {comparison.titleChanged && <Difference label={t('Resume name')} current={document.resume.title} saved={selected.resume.title} />}
               {comparison.profileFields.map(field => field === 'avatar' ? <p key={field} className="text-sm">{t('Photo changed')}</p> : <Difference key={field} label={t(PROFILE_LABELS[field] || field)} current={document.resume.profile[field as keyof ResumeProfile] || ''} saved={selected.resume.profile[field as keyof ResumeProfile] || ''} />)}
               {comparison.appearanceChanged && <p className="text-sm">{t('Appearance changed')}</p>}
+              {comparison.variantsChanged && <p className="text-sm">{t('Presets or translations changed')}</p>}
               {orderChanged && <p className="text-sm">{t('Section order changed')}</p>}
               {sectionChanges.map(change => <details key={change.id} className="rounded border border-border p-2"><summary className="cursor-pointer text-sm font-medium">{change.label}</summary><div className="mt-2"><Difference label="" current={change.current ? sectionText(change.current, t) || '—' : t('Section not present')} saved={change.saved ? sectionText(change.saved, t) || '—' : t('Section not present')} /></div></details>)}
             </section>

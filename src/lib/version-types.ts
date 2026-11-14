@@ -22,5 +22,7 @@ export interface VersionComparison {
   profileFields: string[];
   changedSections: string[];
   appearanceChanged: boolean;
+  /** Presets, translations or the declared language changed (item versions show up as a changed section). */
+  variantsChanged: boolean;
   titleChanged: boolean;
 }

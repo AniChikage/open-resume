@@ -130,6 +130,35 @@ export function setVersionField<K extends keyof ItemText>(resume: Resume, itemId
 // ---- Consistency ------------------------------------------------------------
 
 /**
+ * Rewrites the section and item ids inside variants after an import gave the resume
+ * new ids. References to ids missing from the maps are dropped. The input must already
+ * be valid variants; the output is valid too.
+ */
+export function remapVariantIds(variants: Variants, sectionIds: ReadonlyMap<string, string>, itemIds: ReadonlyMap<string, string>): Variants {
+  const remap = <T>(record: Record<string, T> | undefined, ids: ReadonlyMap<string, string>): Record<string, T> => {
+    const result: Record<string, T> = {};
+    for (const [key, value] of Object.entries(record ?? {})) {
+      const next = ids.get(key);
+      if (next !== undefined) result[next] = value;
+    }
+    return result;
+  };
+  const withoutEmpty = <T>(record: Record<string, T>): Record<string, T> | undefined => Object.keys(record).length ? record : undefined;
+  return {
+    ...variants,
+    presets: variants.presets.map(preset => {
+      const sections = withoutEmpty(remap(preset.sections, sectionIds));
+      return { id: preset.id, name: preset.name, items: remap(preset.items, itemIds), ...(sections ? { sections } : {}) };
+    }),
+    translations: Object.fromEntries(Object.entries(variants.translations).map(([locale, translation]) => {
+      const sections = withoutEmpty(remap(translation.sections, sectionIds));
+      const items = withoutEmpty(remap(translation.items, itemIds));
+      return [locale, { ...(translation.profile ? { profile: translation.profile } : {}), ...(sections ? { sections } : {}), ...(items ? { items } : {}) }];
+    })),
+  };
+}
+
+/**
  * Drops references to items, sections and versions that no longer exist (after a
  * deletion), so stored presets and translations do not grow stale data.
  */

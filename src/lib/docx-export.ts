@@ -1,3 +1,4 @@
+import { translate } from './i18n.ts';
 import { getPaperSize } from './paper.ts';
 import { BorderStyle, Document, ExternalHyperlink, HeadingLevel, ImageRun, Packer, Paragraph, TextRun, UnderlineType } from 'docx';
 import type { ParagraphChild } from 'docx';
@@ -80,7 +81,7 @@ export async function buildResumeDocx({ resume, settings }: EditorDocument, lang
   if (contact) children.push(new Paragraph({ text: contact, spacing: { after: 180 } }));
   for (const section of resume.sections.filter((entry) => entry.visible && entry.items.length)) {
     children.push(new Paragraph({ text: section.label, heading: HeadingLevel.HEADING_1, keepNext: true, spacing: { before: 220, after: 120 }, border: { bottom: { color: accent, style: BorderStyle.SINGLE, size: 5, space: 6 } } }));
-    for (const item of section.items) children.push(...itemParagraphs(item, section.type, lang.startsWith('zh') ? '至今' : 'Present'));
+    for (const item of section.items) children.push(...itemParagraphs(item, section.type, translate(lang, 'Present')));
   }
   const document = new Document({ title: resume.title, creator: 'Resume Builder', description: 'Editable resume',
     styles: { default: {

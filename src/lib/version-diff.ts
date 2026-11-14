@@ -30,6 +30,7 @@ export function compareVersionDocuments(current: EditorDocument, historical: Edi
     profileFields,
     changedSections: [...new Set(changedSections)],
     appearanceChanged: appearanceFields.some(key => current.settings[key] !== historical.settings[key]),
+    variantsChanged: !sameVersionValue(current.resume.variants, historical.resume.variants),
     titleChanged: current.resume.title !== historical.resume.title,
   };
 }
