@@ -55,8 +55,9 @@ import { LanguageBar,languageName } from '../components/LanguageBar.tsx';
 import { TranslationPanel } from '../components/TranslationPanel.tsx';
 import { Dialog,DialogContent,DialogDescription,DialogFooter,DialogHeader,DialogTitle } from '../components/ui/dialog.tsx';
 import { useActiveLocale } from '../lib/use-active-locale.ts';
-import { addTranslationLocale,removeTranslationLocale,setItemSame,setItemTranslation,setProfileTranslation,setSectionLabelTranslation,setSourceLocale } from '../lib/translation-edit.ts';
+import { addTranslationLocale,markTranslationCurrent,removeTranslationLocale,setItemSame,setItemTranslation,setProfileTranslation,setSectionLabelTranslation,setSourceLocale } from '../lib/translation-edit.ts';
 import { buildTranslationRows,isItemMarkedSame } from '../lib/translation-rows.ts';
+import { toStoredValue } from '../lib/version-fields.ts';
 
 import { EditorModes, ResumeCheckPanel, ResumeSharePanel } from '../components/EditorWorkspace.tsx';
 import { workspaceText } from '../lib/editor-workspace-copy.ts';
@@ -603,9 +604,16 @@ export default function Editor({ resumeId }: {resumeId:string}) {
     missingCount: translationRows.filter((row) => row.missing).length,
     itemLabel: (itemId) => { for (const s of resume.sections) { const found = s.items.find((x) => x.id === itemId); if (found) return getItemTitle(s, found, t); } return ''; },
     versionName: (itemId, versionId) => { for (const s of resume.sections) { const found = s.items.find((x) => x.id === itemId); if (found) return found.versions?.find((v) => v.id === versionId)?.name ?? ''; } return ''; },
-    setProfileTranslation: (field, value) => { if (localeId) updateResume((d) => setProfileTranslation(d, localeId, field, value), `translate:${localeId}:profile:${field}`); },
-    setSectionLabelTranslation: (sectionId, value) => { if (localeId) updateResume((d) => setSectionLabelTranslation(d, localeId, sectionId, value), `translate:${localeId}:section:${sectionId}`); },
-    setItemTranslation: (itemId, versionId, field, value) => { if (localeId) updateResume((d) => setItemTranslation(d, localeId, itemId, versionId, field, value as never), `translate:${localeId}:${itemId}:${versionId ?? ''}:${field}`); },
+    setRowTranslation: (row, value) => {
+      if (!localeId) return;
+      updateResume((d) => {
+        if (row.scope === 'profile') setProfileTranslation(d, localeId, row.field as 'headline' | 'city' | 'status', value, row.source);
+        else if (row.scope === 'section') setSectionLabelTranslation(d, localeId, row.sectionId!, value, row.source);
+        else setItemTranslation(d, localeId, row.itemId!, row.versionId ?? null, row.field as never, toStoredValue(row.input, value) as never, row.source);
+      }, `translate:${localeId}:${row.key}`);
+    },
+    markRowCurrent: (row) => { if (localeId) updateResume((d) => markTranslationCurrent(d, localeId, row, row.source)); },
+    staleCount: translationRows.filter((row) => row.stale).length,
     isItemSame: (itemId) => Boolean(localeId && isItemMarkedSame(resume, localeId, itemId)),
     setItemSame: (itemId, same) => { if (localeId) updateResume((d) => setItemSame(d, localeId, itemId, same)); },
   };

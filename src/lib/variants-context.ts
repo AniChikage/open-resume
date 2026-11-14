@@ -39,13 +39,16 @@ export interface VariantsApi {
   removeLocale(locale: string): void;
   /** Texts to translate for the active language (empty while viewing the source language). */
   rows: TranslationRow[];
-  /** Texts shown in the source language because they are not translated yet, with the active preset applied. */
+  /** Texts of the active language that are not translated yet (every item, whatever the preset). */
   missingCount: number;
   itemLabel(itemId: string): string;
   versionName(itemId: string, versionId: string): string;
-  setProfileTranslation(field: 'headline' | 'city' | 'status', value: string): void;
-  setSectionLabelTranslation(sectionId: string, value: string): void;
-  setItemTranslation(itemId: string, versionId: string | null, field: keyof ItemText, value: string | string[]): void;
+  /** Saves the translation typed for a row, remembering which source text it answers. */
+  setRowTranslation(row: TranslationRow, value: string): void;
+  /** Declares the translation of a row up to date with its current source text. */
+  markRowCurrent(row: TranslationRow): void;
+  /** Translations whose source text changed since they were written. */
+  staleCount: number;
   isItemSame(itemId: string): boolean;
   setItemSame(itemId: string, same: boolean): void;
 }

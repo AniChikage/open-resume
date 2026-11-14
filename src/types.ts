@@ -29,10 +29,14 @@ export interface ItemTranslation {
   base?: ItemText;                          // translation of the item's own text
   versions?: Record<string, ItemText>;      // translation of each version's overridden text, by version id
   same?: boolean;                           // the item needs no translation (names, technical terms...)
+  // Fingerprints of the source texts as they were when each translation was written, by the
+  // same layout as `base` and `versions`. They tell when a source changed afterwards.
+  sources?: { base?: Record<string, string>; versions?: Record<string, Record<string, string>> };
 }
 export interface Translation {
   profile?: Partial<Pick<ResumeProfile, 'headline' | 'city' | 'status'>>;
-  sections?: Record<string, { label?: string }>;
+  profileSources?: Record<string, string>;   // fingerprints of the profile texts when translated
+  sections?: Record<string, { label?: string; source?: string }>;
   items?: Record<string, ItemTranslation>;
 }
 export interface PresetItemChoice { hidden?: boolean; version?: string }

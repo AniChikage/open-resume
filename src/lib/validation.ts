@@ -53,9 +53,14 @@ export function isResumeItem(value: unknown): value is ResumeItem {
     && (value.versions === undefined || isItemVersions(value.versions));
 }
 
+// Fingerprints are short hex strings; the bound keeps a hostile document from hiding large payloads there.
+const isHashes = (value: unknown): boolean => isRecord(value) && Object.values(value).every(hash => typeof hash === 'string' && hash.length <= 64);
 function isItemTranslation(value: unknown): value is ItemTranslation {
   return isRecord(value) && isOptional(value.base, isItemText) && isOptional(value.same, isBoolean)
-    && (value.versions === undefined || everyValue(value.versions, isItemText));
+    && (value.versions === undefined || everyValue(value.versions, isItemText))
+    && (value.sources === undefined || (isRecord(value.sources)
+      && (value.sources.base === undefined || isHashes(value.sources.base))
+      && (value.sources.versions === undefined || everyValue(value.sources.versions, (hashes): hashes is Record<string, string> => isHashes(hashes)))));
 }
 function isProfileTranslation(value: unknown): boolean {
   return isRecord(value) && ['headline','city','status'].every(key => value[key] === undefined || typeof value[key] === 'string');
@@ -63,7 +68,8 @@ function isProfileTranslation(value: unknown): boolean {
 function isTranslation(value: unknown): value is Translation {
   return isRecord(value)
     && (value.profile === undefined || isProfileTranslation(value.profile))
-    && (value.sections === undefined || everyValue(value.sections, (section): section is { label?: string } => isRecord(section) && isOptional(section.label, isString)))
+    && (value.profileSources === undefined || isHashes(value.profileSources))
+    && (value.sections === undefined || everyValue(value.sections, (section): section is { label?: string; source?: string } => isRecord(section) && isOptional(section.label, isString) && (section.source === undefined || (isString(section.source) && section.source.length <= 64))))
     && (value.items === undefined || everyValue(value.items, isItemTranslation));
 }
 function isPreset(value: unknown): value is Preset {

@@ -38,6 +38,7 @@ export function LanguageBar() {
       <span className={cn('rounded px-2 py-0.5 font-medium', variants.missingCount > 0 ? 'bg-amber-100 text-amber-900' : 'bg-emerald-100 text-emerald-900')} role="status">
         {variants.missingCount > 0 ? t('{count} texts not translated yet', { count: variants.missingCount }) : t('Fully translated')}
       </span>
+      {variants.staleCount > 0 && <span className="rounded bg-sky-100 px-2 py-0.5 font-medium text-sky-900" role="status">{t('{count} translations possibly outdated', { count: variants.staleCount })}</span>}
       {!confirmRemove
         ? <Button type="button" variant="ghost" size="xs" onClick={() => setConfirmRemove(true)}><Trash2 data-icon="inline-start" />{t('Remove this translation')}</Button>
         : <span className="flex items-center gap-2" role="alertdialog" aria-label={t('Remove this translation')}>

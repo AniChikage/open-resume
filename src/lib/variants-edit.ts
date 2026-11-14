@@ -1,4 +1,4 @@
-import type { ItemText, ItemVersion, Preset, Resume, ResumeItem, Variants } from '../types.ts';
+import type { ItemText, ItemVersion, Preset, Resume, ResumeItem, Translation, Variants } from '../types.ts';
 import { DEFAULT_SOURCE_LOCALE } from './variants.ts';
 
 /**
@@ -111,8 +111,10 @@ export function deleteItemVersion(resume: Resume, itemId: string, versionId: str
     if (preset.items[itemId]?.version === versionId) delete preset.items[itemId];
   }
   for (const translation of Object.values(resume.variants?.translations ?? {})) {
-    const versions = translation.items?.[itemId]?.versions;
-    if (versions) delete versions[versionId];
+    const entry = translation.items?.[itemId];
+    if (entry?.versions) delete entry.versions[versionId];
+    if (entry?.sources?.versions) delete entry.sources.versions[versionId];
+    if (entry) tidyItemTranslation(translation, itemId);
   }
 }
 
@@ -128,6 +130,30 @@ export function setVersionField<K extends keyof ItemText>(resume: Resume, itemId
 }
 
 // ---- Consistency ------------------------------------------------------------
+
+/** Drops containers that became empty (and keys holding undefined) so the document does not accumulate dead keys. */
+export function tidyItemTranslation(translation: Translation, itemId: string): void {
+  const items = translation.items;
+  const entry = items?.[itemId];
+  if (!items || !entry) return;
+  if (entry.base && Object.keys(entry.base).length === 0) delete entry.base;
+  if (entry.versions) {
+    for (const [versionId, text] of Object.entries(entry.versions)) if (Object.keys(text).length === 0) delete entry.versions[versionId];
+    if (Object.keys(entry.versions).length === 0) delete entry.versions;
+  }
+  const sources = entry.sources;
+  if (sources) {
+    if (sources.base && Object.keys(sources.base).length === 0) delete sources.base;
+    if (sources.versions) {
+      for (const [versionId, hashes] of Object.entries(sources.versions)) if (Object.keys(hashes).length === 0) delete sources.versions[versionId];
+      if (Object.keys(sources.versions).length === 0) delete sources.versions;
+    }
+    if (Object.keys(sources).length === 0) delete entry.sources;
+  }
+  if (Object.keys(entry).length === 0) delete items[itemId];
+  if (Object.keys(items).length === 0) delete translation.items;
+}
+
 
 /**
  * Rewrites the section and item ids inside variants after an import gave the resume
@@ -153,7 +179,7 @@ export function remapVariantIds(variants: Variants, sectionIds: ReadonlyMap<stri
     translations: Object.fromEntries(Object.entries(variants.translations).map(([locale, translation]) => {
       const sections = withoutEmpty(remap(translation.sections, sectionIds));
       const items = withoutEmpty(remap(translation.items, itemIds));
-      return [locale, { ...(translation.profile ? { profile: translation.profile } : {}), ...(sections ? { sections } : {}), ...(items ? { items } : {}) }];
+      return [locale, { ...(translation.profile ? { profile: translation.profile } : {}), ...(translation.profileSources ? { profileSources: translation.profileSources } : {}), ...(sections ? { sections } : {}), ...(items ? { items } : {}) }];
     })),
   };
 }
@@ -187,6 +213,11 @@ export function pruneVariants(resume: Resume): void {
       const versions = versionsByItem.get(itemId);
       if (!versions) { delete translation.items[itemId]; continue; }
       if (itemTranslation.versions) for (const versionId of Object.keys(itemTranslation.versions)) if (!versions.has(versionId)) delete itemTranslation.versions[versionId];
+      const sourceVersions = itemTranslation.sources?.versions;
+      if (sourceVersions) for (const versionId of Object.keys(sourceVersions)) if (!versions.has(versionId)) delete sourceVersions[versionId];
+      tidyItemTranslation(translation, itemId);
     }
+    if (translation.items && Object.keys(translation.items).length === 0) delete translation.items;
+    if (translation.sections && Object.keys(translation.sections).length === 0) delete translation.sections;
   }
 }
