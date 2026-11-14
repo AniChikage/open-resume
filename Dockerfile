@@ -13,6 +13,8 @@ COPY --from=build --chown=node:node /app/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/dist ./dist
 COPY --from=build --chown=node:node /app/server ./server
 COPY --from=build --chown=node:node /app/src/tailoring.ts ./src/tailoring.ts
+COPY --from=build --chown=node:node /app/src/translation.ts ./src/translation.ts
+COPY --from=build --chown=node:node /app/src/lib/translate-limits.ts ./src/lib/translate-limits.ts
 COPY --from=build --chown=node:node /app/src/lib/tailoring.ts ./src/lib/tailoring.ts
 COPY --from=build --chown=node:node /app/src/lib/validation.ts ./src/lib/validation.ts
 COPY --from=build --chown=node:node /app/src/lib/version-types.ts ./src/lib/version-types.ts
