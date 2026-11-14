@@ -74,7 +74,7 @@ export interface ResumeTemplate {
 export interface SectionCopy { label: string; empty: string; itemTitle?: string }
 export interface SectionTemplate extends SectionCopy { kind: string; icon: string; item: () => ResumeItem }
 export interface WorkspaceUser { id: string; username: string; email: string; name: string; picture: string }
-export interface AppConfig { demoLogin: boolean; demoUsername: string; demoPassword: string; aiConfigured: boolean }
+export interface AppConfig { demoLogin: boolean; demoUsername: string; demoPassword: string; aiConfigured: boolean; translateProvider: 'libretranslate' | 'deepl' | null }
 export interface TailoringTarget { id: string; sectionIndex: number; itemIndex: number; type: string; label: string; title: string; text: string }
 export interface TailoringSuggestion { id: string; label: string; title: string; before: string; after: string; evidence: string; reason: string }
 export interface TailoringResult { role: string; summary: string; gaps: string[]; suggestions: TailoringSuggestion[] }

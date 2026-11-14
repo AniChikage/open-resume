@@ -12,6 +12,7 @@ import { errorMessage,isEditorDocument,isRecord,isResume,isResumeSettings } from
 import { VERSION_AUTO_LIMIT,VERSION_AUTOSAVE_WINDOW_MS,VERSION_MANUAL_LIMIT } from '../src/lib/version-types.ts';
 import type { ResumeVersion,ResumeVersionKind,ResumeVersionSummary } from '../src/lib/version-types.ts';
 import { handleTailoring } from '../src/tailoring.ts';
+import { handleTranslation,translateEngine } from '../src/translation.ts';
 import type { EditorDocument,StoredResume } from '../src/types.ts';
 export interface AppOptions {dataDir?:string;distDir?:string;env?:NodeJS.ProcessEnv;fetchImpl?:typeof fetch;devMiddleware?:Connect.Server}
 
@@ -138,6 +139,7 @@ export function createApp({ dataDir = path.resolve('.data'), distDir = path.reso
           demoUsername: customLogin ? '' : DEMO_USERNAME,
           demoPassword: customLogin ? '' : DEMO_PASSWORD,
           aiConfigured: Boolean(env.AI_API_KEY && env.AI_MODEL),
+          translateProvider: translateEngine(env)?.provider ?? null,
         });
         if (pathname === '/api/auth/me' && method === 'GET') return json(res, 200, { user: authenticated(req) ? user : null });
         if (pathname === '/api/auth/login' && method === 'POST') {
@@ -158,6 +160,13 @@ export function createApp({ dataDir = path.resolve('.data'), distDir = path.reso
         if (pathname === '/api/tailor') {
           const request = new Request(url, { method, headers: Object.fromEntries(Object.entries(req.headers).filter((entry): entry is [string,string] => typeof entry[1] === 'string')), ...(!['GET', 'HEAD'].includes(method) ? { body: Readable.toWeb(req) as ReadableStream<Uint8Array>, duplex: 'half' as const } : {}) });
           const response = await handleTailoring(request, env, user, { fetchImpl });
+          res.writeHead(response.status, Object.fromEntries(response.headers));
+          res.end(await response.text());
+          return;
+        }
+        if (pathname === '/api/translate') {
+          const request = new Request(url, { method, headers: Object.fromEntries(Object.entries(req.headers).filter((entry): entry is [string,string] => typeof entry[1] === 'string')), ...(!['GET', 'HEAD'].includes(method) ? { body: Readable.toWeb(req) as ReadableStream<Uint8Array>, duplex: 'half' as const } : {}) });
+          const response = await handleTranslation(request, env, user, { fetchImpl });
           res.writeHead(response.status, Object.fromEntries(response.headers));
           res.end(await response.text());
           return;
