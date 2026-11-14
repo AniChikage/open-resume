@@ -29,11 +29,23 @@ export interface TranslationRow {
   stale: boolean;
   /** An automatic translation that nobody has reviewed yet. */
   machine: boolean;
+  /**
+   * Names such as a company, school or place: they can be translated ("Career break") but may
+   * just as well stay as they are, so an empty one is never reported as missing.
+   */
+  optional: boolean;
 }
 
 const PROFILE_FIELDS = [['headline', 'Target role'], ['city', 'Current city'], ['status', 'Current status']] as const;
 // Prose-like fields beyond what a section kind's version form offers, still worth translating.
-const EXTRA_FIELDS: { field: keyof ItemText; label: string; input: FieldInputKind }[] = [
+interface FieldDef { field: keyof ItemText; label: string; input: FieldInputKind; optional?: boolean }
+// Names that lead and trail an item's own fields in the panel (company before the role, place after the text).
+const LEADING_NAME_FIELDS: FieldDef[] = [
+  { field: 'org', label: 'Organization / company', input: 'line', optional: true },
+  { field: 'school', label: 'School', input: 'line', optional: true },
+];
+const TRAILING_NAME_FIELDS: FieldDef[] = [{ field: 'location', label: 'Location', input: 'line', optional: true }];
+const EXTRA_FIELDS: FieldDef[] = [
   { field: 'title', label: 'Title', input: 'line' },
   { field: 'department', label: 'Department', input: 'line' },
   { field: 'description', label: 'Description', input: 'text' },
@@ -51,15 +63,15 @@ const isStale = (translated: string, source: string, stored: string | undefined)
 };
 const isMachine = (translated: string, stored: string | undefined) => isFilled(translated) && Boolean(parseStoredFingerprint(stored)?.machine);
 
-function fieldsFor(kind: string, item: ResumeItem) {
-  const specs = versionFieldSpecs(kind).map(spec => ({ ...spec }));
+function fieldsFor(kind: string, item: ResumeItem): FieldDef[] {
+  const specs: FieldDef[] = versionFieldSpecs(kind).map(spec => ({ ...spec }));
   const hasDates = Boolean(item.startDate || item.endDate || item.current);
   for (const extra of EXTRA_FIELDS) {
     if (specs.some(spec => spec.field === extra.field)) continue;
     if (extra.field === 'period' && hasDates) continue;
     specs.push(extra);
   }
-  return specs;
+  return [...LEADING_NAME_FIELDS, ...specs, ...TRAILING_NAME_FIELDS];
 }
 
 export function isItemMarkedSame(resume: Resume, locale: string, itemId: string): boolean {
@@ -76,7 +88,7 @@ export function buildTranslationRows(resume: Resume, locale: string): Translatio
     const source = resume.profile[field];
     if (!isFilled(source)) continue;
     const translated = translation?.profile?.[field] ?? '';
-    rows.push({ key: `profile:${field}`, scope: 'profile', field, label, input: 'line', source, translated, missing: !isFilled(translated), stale: isStale(translated, source, own(translation?.profileSources, field)), machine: isMachine(translated, own(translation?.profileSources, field)) });
+    rows.push({ key: `profile:${field}`, scope: 'profile', field, label, input: 'line', source, translated, missing: !isFilled(translated), stale: isStale(translated, source, own(translation?.profileSources, field)), machine: isMachine(translated, own(translation?.profileSources, field)), optional: false });
   }
 
   for (const section of resume.sections) {
@@ -85,7 +97,7 @@ export function buildTranslationRows(resume: Resume, locale: string): Translatio
     if (isFilled(section.label)) {
       const sectionTranslation = own(translation?.sections, section.id);
       const translated = sectionTranslation?.label ?? '';
-      rows.push({ key: `section:${section.id}:label`, scope: 'section', field: 'label', label: 'Title', input: 'line', sectionId: section.id, source: section.label, translated, missing: !isFilled(translated), stale: isStale(translated, section.label, sectionTranslation?.source), machine: isMachine(translated, sectionTranslation?.source) });
+      rows.push({ key: `section:${section.id}:label`, scope: 'section', field: 'label', label: 'Title', input: 'line', sectionId: section.id, source: section.label, translated, missing: !isFilled(translated), stale: isStale(translated, section.label, sectionTranslation?.source), machine: isMachine(translated, sectionTranslation?.source), optional: false });
     }
     for (const item of section.items) {
       const itemTranslation = own(translation?.items, item.id);
@@ -94,13 +106,13 @@ export function buildTranslationRows(resume: Resume, locale: string): Translatio
         const source = toDisplayValue(item[spec.field]);
         if (isFilled(source)) {
           const translated = toDisplayValue(itemTranslation?.base?.[spec.field]);
-          rows.push({ key: `item:${item.id}:${spec.field}`, scope: 'item', field: spec.field, label: spec.label, input: spec.input, sectionId: section.id, itemId: item.id, source, translated, missing: !same && !isFilled(translated), stale: isStale(translated, source, own(itemTranslation?.sources?.base, spec.field)), machine: isMachine(translated, own(itemTranslation?.sources?.base, spec.field)) });
+          rows.push({ key: `item:${item.id}:${spec.field}`, scope: 'item', field: spec.field, label: spec.label, input: spec.input, sectionId: section.id, itemId: item.id, source, translated, missing: !same && !spec.optional && !isFilled(translated), stale: isStale(translated, source, own(itemTranslation?.sources?.base, spec.field)), machine: isMachine(translated, own(itemTranslation?.sources?.base, spec.field)), optional: Boolean(spec.optional) });
         }
         for (const version of item.versions ?? []) {
           const versionSource = toDisplayValue(version.content[spec.field]);
           if (!isFilled(versionSource)) continue;
           const translated = toDisplayValue(own(itemTranslation?.versions, version.id)?.[spec.field]);
-          rows.push({ key: `item:${item.id}:${version.id}:${spec.field}`, scope: 'item', field: spec.field, label: spec.label, input: spec.input, sectionId: section.id, itemId: item.id, versionId: version.id, source: versionSource, translated, missing: !same && !isFilled(translated), stale: isStale(translated, versionSource, own(own(itemTranslation?.sources?.versions, version.id), spec.field)), machine: isMachine(translated, own(own(itemTranslation?.sources?.versions, version.id), spec.field)) });
+          rows.push({ key: `item:${item.id}:${version.id}:${spec.field}`, scope: 'item', field: spec.field, label: spec.label, input: spec.input, sectionId: section.id, itemId: item.id, versionId: version.id, source: versionSource, translated, missing: !same && !spec.optional && !isFilled(translated), stale: isStale(translated, versionSource, own(own(itemTranslation?.sources?.versions, version.id), spec.field)), machine: isMachine(translated, own(own(itemTranslation?.sources?.versions, version.id), spec.field)), optional: Boolean(spec.optional) });
         }
       }
     }

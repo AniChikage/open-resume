@@ -16,6 +16,7 @@ import {
 import { assembleTranslations, chunkPlan, planTranslation } from '../src/lib/translation-plan.ts';
 import type { PlannedItem } from '../src/lib/translation-plan.ts';
 import { buildTranslationRows } from '../src/lib/translation-rows.ts';
+import { resolveResume } from '../src/lib/variants.ts';
 import { isVariants } from '../src/lib/validation.ts';
 import type { Resume } from '../src/types.ts';
 
@@ -37,7 +38,7 @@ const keys = (items: PlannedItem[]) => items.map(item => `${item.rowKey}${item.l
 test('only untranslated texts are planned, with the right format, and lists are sent line by line', () => {
   const plan = planTranslation(rows());
   assert.deepEqual(keys(plan.items), [
-    'profile:headline', 'profile:city', 'section:work:label', 'item:job-1:role', 'item:job-1:body',
+    'profile:headline', 'profile:city', 'section:work:label', 'item:job-1:org', 'item:job-1:role', 'item:job-1:body',
     'section:skills:label', 'item:skill-1:title', 'item:skill-1:values#0', 'item:skill-1:values#1', 'item:skill-1:values#2',
   ]);
   assert.equal(plan.items.find(item => item.rowKey === 'item:job-1:body')!.format, 'html');
@@ -121,7 +122,7 @@ test('the client translates the missing texts through the server and returns the
   assert.equal(result.translations.get('item:job-1:body'), 'FR(<p>Built the <b>billing</b> platform</p>)', 'HTML goes through as HTML');
   assert.equal(result.translations.size, rows().length);
   assert.equal(sent.length, 2, 'one request per format');
-  assert.deepEqual(progress.at(-1), 10);
+  assert.deepEqual(progress.at(-1), 11);
 });
 
 test('a failing service returns the error code and nothing it did not translate', async (t) => {
@@ -182,4 +183,26 @@ test('the automatic flag survives a backup restore', () => {
   const [restored] = readBackup(createBackup([{ resume: doc, settings: { ...DEFAULT_SETTINGS } }]));
   assert.equal(buildTranslationRows(restored.resume, 'fr').find(row => row.field === 'role')!.machine, true);
   assert.ok(storedFingerprint('x', true).startsWith('~'));
+});
+
+test('a company, school or place can be translated, but is never reported as missing', () => {
+  const doc = resume();
+  doc.sections[0].items[0].org = 'Career break';
+  doc.sections[0].items[0].location = 'Paris';
+  const orgRow = () => rows(doc).find(row => row.key === 'item:job-1:org')!;
+  assert.deepEqual([orgRow().optional, orgRow().missing, orgRow().translated], [true, false, '']);
+  assert.ok(rows(doc).some(row => row.key === 'item:job-1:location' && row.optional));
+  // It is offered for automatic translation, unlike a text that already has a translation.
+  assert.ok(keys(planTranslation(rows(doc)).items).includes('item:job-1:org'));
+  assert.ok(keys(planTranslation(rows(doc)).items).includes('item:job-1:location'));
+  // Leaving it empty never triggers the "not fully translated" warning.
+  assert.ok(!resolveResume(doc, { locale: 'fr' }).missing.some(entry => entry.field === 'org' || entry.field === 'location'));
+
+  setItemTranslation(doc, 'fr', 'job-1', null, 'org', 'Pause de carrière', 'Career break');
+  assert.equal(resolveResume(doc, { locale: 'fr' }).resume.sections[0].items[0].org, 'Pause de carrière');
+  assert.equal(resolveResume(doc).resume.sections[0].items[0].org, 'Career break', 'the source language is untouched');
+  assert.ok(!keys(planTranslation(rows(doc)).items).includes('item:job-1:org'), 'a translated name is not sent again');
+  // A school behaves the same way.
+  doc.sections.push({ id: 'edu', type: 'education', label: 'Education', visible: true, items: [{ id: 'edu-1', school: 'Open University', major: 'Computing' }] });
+  assert.ok(rows(doc).some(row => row.key === 'item:edu-1:school' && row.optional));
 });

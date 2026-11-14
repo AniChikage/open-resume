@@ -30,7 +30,8 @@ export function planTranslation(rows: TranslationRow[], rowKeys?: ReadonlySet<st
   const skipped: string[] = [];
   for (const row of rows) {
     if (rowKeys && !rowKeys.has(row.key)) continue;
-    if (!row.missing || row.translated.trim() || !row.source.trim()) continue;
+    // Optional rows (company, school, place) are sent too: a name such as "Career break" does need translating.
+    if (!(row.missing || row.optional) || row.translated.trim() || !row.source.trim()) continue;
     const parts = row.input === 'lines' ? row.source.split('\n').map(line => line.trim()).filter(Boolean) : [row.source];
     if (parts.some(part => part.length > TRANSLATE_MAX_ITEM_LENGTH)) { skipped.push(row.key); continue; }
     const format = row.input === 'rich' ? 'html' : 'text';

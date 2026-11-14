@@ -59,7 +59,7 @@ export function TranslationPanel({ FieldInput }: { FieldInput: ComponentType<Fie
   const groups = groupRows(variants.rows, variants.itemLabel, t);
   const provider = config?.translateProvider ?? null;
   const providerName = provider ? PROVIDER_NAMES[provider] ?? provider : '';
-  const canTranslate = (row: TranslationRow) => row.missing && !row.translated.trim();
+  const canTranslate = (row: TranslationRow) => (row.missing || row.optional) && !row.translated.trim();
   const untranslated = variants.rows.filter(canTranslate).length;
 
   // `only` limits the run to one row (its own button); otherwise every untranslated text is sent.
@@ -104,6 +104,7 @@ export function TranslationPanel({ FieldInput }: { FieldInput: ComponentType<Fie
           <span>{t(row.label)}</span>
           {row.versionId && <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-normal text-primary">{variants.versionName(row.itemId!, row.versionId)}</span>}
           {row.missing && <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-900">{t('Not translated')}</span>}
+          {row.optional && !row.translated.trim() && <span className="text-[10px] font-normal text-muted-foreground">{t('Optional: may stay as it is')}</span>}
           {provider && canTranslate(row) && <button type="button" className="text-[10px] font-normal underline underline-offset-2 hover:text-foreground disabled:opacity-50" disabled={busy !== null} onClick={() => void translate(row)}>{busy === row.key ? t('Translating…') : t('Translate with {provider}', { provider: providerName })}</button>}
           {row.machine && <span className="rounded bg-violet-100 px-1.5 py-0.5 text-[10px] font-medium text-violet-900">{t('Automatic translation: please review')}</span>}
           {row.machine && <button type="button" className="text-[10px] font-normal underline underline-offset-2 hover:text-foreground" onClick={() => variants.markRowReviewed(row)}>{t('Mark as reviewed')}</button>}
