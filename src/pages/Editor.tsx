@@ -38,7 +38,7 @@ import { CHINA_MAJOR_OPTIONS,CHINA_SCHOOL_OPTIONS } from '../lib/education-optio
 import { navigate } from '../lib/router.ts';
 import { generateShareUrl } from '../lib/share.ts';
 import { getResume,saveResume } from '../lib/storage.ts';
-import { useTheme } from '../lib/theme.tsx';
+import { ContentLanguageProvider,useTheme } from '../lib/theme.tsx';
 import { useEditorHistory } from '../lib/use-editor-history.ts';
 import { cn } from '../lib/utils.ts';
 import { errorMessage,isEditorDocument } from '../lib/validation.ts';
@@ -50,7 +50,13 @@ import { useActivePreset } from '../lib/use-active-preset.ts';
 import { useVariants,VariantsProvider } from '../lib/variants-context.ts';
 import type { VariantsApi } from '../lib/variants-context.ts';
 import { addItemVersion,createPreset,deleteItemVersion,deletePreset,duplicatePreset,findPreset,pruneVariants,renameItemVersion,renamePreset,setItemChoice,setSectionHidden,setVersionField } from '../lib/variants-edit.ts';
-import { resolveResume } from '../lib/variants.ts';
+import { DEFAULT_SOURCE_LOCALE,resolveResume } from '../lib/variants.ts';
+import { LanguageBar,languageName } from '../components/LanguageBar.tsx';
+import { TranslationPanel } from '../components/TranslationPanel.tsx';
+import { Dialog,DialogContent,DialogDescription,DialogFooter,DialogHeader,DialogTitle } from '../components/ui/dialog.tsx';
+import { useActiveLocale } from '../lib/use-active-locale.ts';
+import { addTranslationLocale,removeTranslationLocale,setItemSame,setItemTranslation,setProfileTranslation,setSectionLabelTranslation,setSourceLocale } from '../lib/translation-edit.ts';
+import { buildTranslationRows,isItemMarkedSame } from '../lib/translation-rows.ts';
 
 import { EditorModes, ResumeCheckPanel, ResumeSharePanel } from '../components/EditorWorkspace.tsx';
 import { workspaceText } from '../lib/editor-workspace-copy.ts';
@@ -351,8 +357,18 @@ export default function Editor({ resumeId }: {resumeId:string}) {
   const [storedPresetId, selectPreset] = useActivePreset(resumeId);
   // The preset only exists while the stored resume still has it (undo or deletion can remove it).
   const presetId = resume && findPreset(resume, storedPresetId) ? storedPresetId : null;
-  // What is shown and exported: the resume with the active preset applied. The editor itself keeps working on `resume`.
-  const renderedResume = useMemo(() => resume ? resolveResume(resume, { presetId: presetId ?? undefined }).resume : null, [resume, presetId]);
+  const [storedLocale, selectLocale] = useActiveLocale(resumeId);
+  const sourceLocale = resume?.variants?.sourceLocale ?? DEFAULT_SOURCE_LOCALE;
+  const translatedLocales = Object.keys(resume?.variants?.translations ?? {}).filter((locale) => locale !== sourceLocale);
+  // The language shown: null means the source language (also when the remembered language was removed).
+  const localeId = storedLocale && translatedLocales.includes(storedLocale) ? storedLocale : null;
+  // What is shown and exported: the resume with the active preset and language applied. The editor itself keeps working on `resume`.
+  const resolved = useMemo(() => resume ? resolveResume(resume, { presetId: presetId ?? undefined, locale: localeId ?? undefined }) : null, [resume, presetId, localeId]);
+  const renderedResume = resolved?.resume ?? null;
+  // Fixed labels ("Present", "Phone"...) follow the content language once one is declared; older resumes keep following the interface language.
+  const contentLang = resume?.variants ? (localeId ?? sourceLocale) : lang;
+  const translationRows = useMemo(() => resume && localeId ? buildTranslationRows(resume, localeId) : [], [resume, localeId]);
+  const [pendingExport, setPendingExport] = useState<{ type: string; count: number } | null>(null);
   const pdfKey = usePdfDocumentKey(renderedResume, settings, lang);
   const pdfPreview = usePdfPreview(paperRef, pdfKey);
   const latestDocumentKey = useRef(pdfKey);
@@ -575,14 +591,31 @@ export default function Editor({ resumeId }: {resumeId:string}) {
     renameVersion: (itemId, versionId, name) => updateResume((d) => renameItemVersion(d, itemId, versionId, name)),
     deleteVersion: (itemId, versionId) => updateResume((d) => deleteItemVersion(d, itemId, versionId)),
     setVersionField: (itemId, versionId, field, value) => updateResume((d) => setVersionField(d, itemId, versionId, field, value as never), `version:${versionId}:${field}`),
+
+    sourceLocale,
+    translatedLocales,
+    localeId,
+    selectLocale,
+    setSourceLocale: (locale) => updateResume((d) => setSourceLocale(d, locale)),
+    addLocale: (locale) => { updateResume((d) => addTranslationLocale(d, locale)); selectLocale(locale); },
+    removeLocale: (locale) => { updateResume((d) => removeTranslationLocale(d, locale)); selectLocale(null); },
+    rows: translationRows,
+    missingCount: translationRows.filter((row) => row.missing).length,
+    itemLabel: (itemId) => { for (const s of resume.sections) { const found = s.items.find((x) => x.id === itemId); if (found) return getItemTitle(s, found, t); } return ''; },
+    versionName: (itemId, versionId) => { for (const s of resume.sections) { const found = s.items.find((x) => x.id === itemId); if (found) return found.versions?.find((v) => v.id === versionId)?.name ?? ''; } return ''; },
+    setProfileTranslation: (field, value) => { if (localeId) updateResume((d) => setProfileTranslation(d, localeId, field, value), `translate:${localeId}:profile:${field}`); },
+    setSectionLabelTranslation: (sectionId, value) => { if (localeId) updateResume((d) => setSectionLabelTranslation(d, localeId, sectionId, value), `translate:${localeId}:section:${sectionId}`); },
+    setItemTranslation: (itemId, versionId, field, value) => { if (localeId) updateResume((d) => setItemTranslation(d, localeId, itemId, versionId, field, value as never), `translate:${localeId}:${itemId}:${versionId ?? ''}:${field}`); },
+    isItemSame: (itemId) => Boolean(localeId && isItemMarkedSame(resume, localeId, itemId)),
+    setItemSame: (itemId, same) => { if (localeId) updateResume((d) => setItemSame(d, localeId, itemId, same)); },
   };
 
-  const handleExport = async (type: string) => {
+  const runExport = async (type: string) => {
     if (!paperRef.current || isExporting) return;
     setExportFeedback(null);
     setIsExporting(type); setExportOpen(false);
     const presetName = presetId ? findPreset(resume, presetId)?.name : undefined;
-    const base = [resume.title || resume.profile.name || 'resume', presetName?.replace(/[\\/:*?"<>|]+/g, '-')].filter(Boolean).join(' - ');
+    const base = [resume.title || resume.profile.name || 'resume', presetName?.replace(/[\\/:*?"<>|]+/g, '-'), localeId].filter(Boolean).join(' - ');
     try {
       if (type === 'pdf' || type === 'png') {
         const snapshot = await pdfPreview.getSnapshot();
@@ -590,7 +623,7 @@ export default function Editor({ resumeId }: {resumeId:string}) {
         else await downloadPdfSnapshotAsPng(snapshot, `${base}.png`);
       } else if (type === 'docx') {
         const { exportResumeAsDocx } = await import('../lib/docx-export.ts');
-        await exportResumeAsDocx({ resume: renderedResume ?? resume, settings }, `${base}.docx`, lang);
+        await exportResumeAsDocx({ resume: renderedResume ?? resume, settings }, `${base}.docx`, contentLang);
       } else if (type === 'json') {
         const { exportResumeAsJson } = await import('../exporters.ts');
         exportResumeAsJson(resume, settings, `${base}.json`);
@@ -609,6 +642,12 @@ export default function Editor({ resumeId }: {resumeId:string}) {
         detail: error instanceof Error && error.message === 'PREVIEW_CHANGED' ? workspaceText(lang, 'changed') : t('Try again. Your resume content is still safe in the editor.'),
       });
     } finally { setIsExporting(''); }
+  };
+  // Exporting a translation that still has untranslated texts asks first (the JSON backup is the full resume, so it never does).
+  const handleExport = (type: string) => {
+    const untranslated = localeId && type !== 'json' ? resolved?.missing.length ?? 0 : 0;
+    if (untranslated > 0) setPendingExport({ type, count: untranslated });
+    else void runExport(type);
   };
 
   const handleShare = async () => {
@@ -684,11 +723,23 @@ export default function Editor({ resumeId }: {resumeId:string}) {
             : activeView === 'share' ? <ResumeSharePanel key={pdfKey} url={shareUrl} onShare={handleShare} onExport={handleExport} isExporting={isExporting} />
             : <EditorPanel resume={resume} activeItemId={activeItemId} onProfile={updateProfile} onAvatar={handleAvatar} onSection={updateSection} onItem={updateItem} onAddItem={section => locateFromPreview(addItem(section))} onAddSection={type => locateFromPreview(addSection(type))} onDeleteSection={deleteSection} onDeleteItem={deleteItem} onMoveSection={moveSection} onActiveItem={setActiveItemId} onCheck={handleCheck} />}
         </div>
-        <div className="resume-pagination-measure" aria-hidden="true"><ResumePreview resume={renderedResume ?? resume} settings={settings} refNode={paperRef} /></div>
+        <div className="resume-pagination-measure" aria-hidden="true"><ContentLanguageProvider lang={contentLang}><ResumePreview resume={renderedResume ?? resume} settings={settings} refNode={paperRef} /></ContentLanguageProvider></div>
         <Suspense fallback={<div className={cn('min-h-0 items-center justify-center bg-muted/55', previewOnly ? 'flex' : 'hidden lg:flex')}><Loader2 className="animate-spin" /></div>}>
           <PdfResumePreview snapshot={pdfPreview.snapshot} pending={pdfPreview.pending} error={pdfPreview.error} onRetry={pdfPreview.retry} activeItemId={activeItemId} onLocate={locateFromPreview} className={previewOnly ? 'flex' : 'hidden lg:flex'} />
         </Suspense>
       </main>
+      <Dialog open={pendingExport !== null} onOpenChange={(open) => { if (!open) setPendingExport(null); }}>
+        <DialogContent showCloseButton={false}>
+          <DialogHeader>
+            <DialogTitle>{t('This resume is not fully translated')}</DialogTitle>
+            <DialogDescription>{t('You are about to export a resume that is not fully translated: {count} texts are still in {language}.', { count: pendingExport?.count ?? 0, language: languageName(sourceLocale) })}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPendingExport(null)}>{t('Cancel')}</Button>
+            <Button onClick={() => { const type = pendingExport?.type; setPendingExport(null); if (type) void runExport(type); }}>{t('Continue')}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       {managerOpen && <ModuleManager resume={resume} onClose={() => setManagerOpen(false)} onAddSection={addSection} onSection={updateSection} onMoveSection={moveSection} onDeleteSection={deleteSection} />}
       <ResumeHistory resumeId={resumeId} document={history.getSnapshot().present as EditorDocument} onRestore={document => history.commit(document)} open={browserHistoryOpen} onOpenChange={setBrowserHistoryOpen} showTrigger={false} />
       <Suspense fallback={<Skeleton className="fixed right-4 top-20 h-20 w-64" />}>
@@ -786,18 +837,22 @@ function FontPicker({ value, onChange, className, selectClassName, ariaLabel = '
 function EditorPanel({ resume, activeItemId, onProfile, onAvatar, onSection, onItem, onAddItem, onAddSection, onDeleteSection, onDeleteItem, onMoveSection, onActiveItem, onCheck }: {resume:Resume;activeItemId?:string | null;onProfile:(field:keyof ResumeProfile,value:string) => void;onAvatar:(file:File | undefined) => void;onSection:(id:string,patch:Partial<ResumeSectionData>) => void;onItem:(sectionId:string,itemId:string,patch:Partial<ResumeItemData>) => void;onAddItem:(section:ResumeSectionData) => void;onAddSection:(type?:SectionType) => void;onDeleteSection:(id:string) => void;onDeleteItem:(sectionId:string,itemId:string) => void;onMoveSection:(id:string,direction:number) => void;onActiveItem:(id:string) => void;onCheck:() => void}) {
   const { lang, t } = useTheme();
   const stats = getResumeStats(resume);
+  const variants = useVariants();
   return (
     <section className="editor-content-panel" aria-label={t('Resume editor')}>
       <div className="editor-content-heading"><h2>{workspaceText(lang, 'content')}</h2><p>{visualText(lang, 'contentHelp')}</p></div>
       <PresetBar />
-      <EditorOverview stats={stats} onCheck={onCheck} />
-      <div data-editor-target="profile" onFocusCapture={() => onActiveItem("profile")}><ProfileEditor profile={resume.profile} onProfile={onProfile} onAvatar={onAvatar} /></div>
-      {resume.sections.map((section, index) => (
-        <SectionEditor key={section.id} section={section} index={index} total={resume.sections.length}
-          activeItemId={activeItemId} onSection={onSection} onItem={onItem} onAddItem={onAddItem}
-          onDeleteSection={onDeleteSection} onDeleteItem={onDeleteItem} onMoveSection={onMoveSection} onActiveItem={onActiveItem} />
-      ))}
-      <QuickSections resume={resume} onAddSection={onAddSection} />
+      <LanguageBar />
+      {variants?.localeId ? <TranslationPanel FieldInput={VersionFieldInput} /> : <>
+        <EditorOverview stats={stats} onCheck={onCheck} />
+        <div data-editor-target="profile" onFocusCapture={() => onActiveItem("profile")}><ProfileEditor profile={resume.profile} onProfile={onProfile} onAvatar={onAvatar} /></div>
+        {resume.sections.map((section, index) => (
+          <SectionEditor key={section.id} section={section} index={index} total={resume.sections.length}
+            activeItemId={activeItemId} onSection={onSection} onItem={onItem} onAddItem={onAddItem}
+            onDeleteSection={onDeleteSection} onDeleteItem={onDeleteItem} onMoveSection={onMoveSection} onActiveItem={onActiveItem} />
+        ))}
+        <QuickSections resume={resume} onAddSection={onAddSection} />
+      </>}
     </section>
   );
 }
