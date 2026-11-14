@@ -1,5 +1,5 @@
 import type { ItemText, Resume, Translation } from '../types.ts';
-import { fingerprint } from './fingerprint.ts';
+import { parseStoredFingerprint, storedFingerprint } from './fingerprint.ts';
 import { isLocale } from './validation.ts';
 import { ensureVariants, tidyItemTranslation } from './variants-edit.ts';
 
@@ -9,6 +9,8 @@ import { ensureVariants, tidyItemTranslation } from './variants-edit.ts';
  *
  * Setters take an optional `source`: the source text being translated. When given, its
  * fingerprint is stored so a later edit of the source can be noticed (see translation-rows).
+ * `machine` flags the text as an unreviewed automatic translation; a person's own edit
+ * (machine omitted) clears the flag.
  */
 
 type ProfileField = 'headline' | 'city' | 'status';
@@ -51,12 +53,12 @@ function withHash(map: Record<string, string> | undefined, field: string, hash: 
   return map && Object.keys(map).length ? map : undefined;
 }
 
-export function setProfileTranslation(resume: Resume, locale: string, field: ProfileField, value: string, source?: string): void {
+export function setProfileTranslation(resume: Resume, locale: string, field: ProfileField, value: string, source?: string, machine = false): void {
   const translation = translationFor(resume, locale);
   if (!translation) return;
   if (value.trim()) {
     (translation.profile ??= {})[field] = value;
-    if (source !== undefined) translation.profileSources = withHash(translation.profileSources, field, fingerprint(source));
+    if (source !== undefined) translation.profileSources = withHash(translation.profileSources, field, storedFingerprint(source, machine));
   } else {
     if (translation.profile) {
       delete translation.profile[field];
@@ -67,12 +69,12 @@ export function setProfileTranslation(resume: Resume, locale: string, field: Pro
   if (!translation.profileSources) delete translation.profileSources;
 }
 
-export function setSectionLabelTranslation(resume: Resume, locale: string, sectionId: string, value: string, source?: string): void {
+export function setSectionLabelTranslation(resume: Resume, locale: string, sectionId: string, value: string, source?: string, machine = false): void {
   const translation = translationFor(resume, locale);
   if (!translation || !isSafeKey(sectionId) || !resume.sections.some(section => section.id === sectionId)) return;
   if (value.trim()) {
     const previous = translation.sections && Object.hasOwn(translation.sections, sectionId) ? translation.sections[sectionId].source : undefined;
-    const sourceHash = source !== undefined ? fingerprint(source) : previous;
+    const sourceHash = source !== undefined ? storedFingerprint(source, machine) : previous;
     (translation.sections ??= {})[sectionId] = { label: value, ...(sourceHash ? { source: sourceHash } : {}) };
   } else if (translation.sections) {
     delete translation.sections[sectionId];
@@ -87,7 +89,7 @@ const isBlank = (value: string | string[]) => Array.isArray(value) ? value.every
  * version's own wording (null = the item's own text). A blank value removes it.
  */
 export function setItemTranslation<K extends keyof ItemText>(
-  resume: Resume, locale: string, itemId: string, versionId: string | null, field: K, value: NonNullable<ItemText[K]>, source?: string,
+  resume: Resume, locale: string, itemId: string, versionId: string | null, field: K, value: NonNullable<ItemText[K]>, source?: string, machine = false,
 ): void {
   const translation = translationFor(resume, locale);
   if (!translation || !isSafeKey(itemId) || (versionId !== null && !isSafeKey(versionId))) return;
@@ -100,7 +102,7 @@ export function setItemTranslation<K extends keyof ItemText>(
 
   // Fingerprint of the source this text answers: set with the text, dropped with it, kept when no source is given.
   if (blank || source !== undefined) {
-    const hash = blank ? undefined : fingerprint(source!);
+    const hash = blank ? undefined : storedFingerprint(source!, machine);
     const sources = entry.sources ??= {};
     if (versionId === null) assignOrDelete(sources, 'base', withHash(sources.base, field, hash));
     else {
@@ -122,32 +124,49 @@ export interface TranslationTarget {
 }
 
 /**
- * Declares an existing translation up to date with the current source text, without
- * changing it (the "I checked, it is still right" action). Does nothing when there is
- * no translation to vouch for.
+ * Reads and rewrites the stored fingerprint of an existing translation. `update` receives
+ * the current stored value (if any) and returns the new one. Nothing happens when there is
+ * no translation text to attach a fingerprint to.
  */
-export function markTranslationCurrent(resume: Resume, locale: string, target: TranslationTarget, source: string): void {
+function updateStoredFingerprint(resume: Resume, locale: string, target: TranslationTarget, update: (current: string | undefined) => string | undefined): void {
   const translation = resume.variants && Object.hasOwn(resume.variants.translations, locale) ? resume.variants.translations[locale] : undefined;
   if (!translation) return;
-  const hash = fingerprint(source);
   if (target.scope === 'profile') {
-    if (translation.profile?.[target.field as ProfileField]) translation.profileSources = withHash(translation.profileSources, target.field, hash);
+    if (!translation.profile?.[target.field as ProfileField]) return;
+    translation.profileSources = withHash(translation.profileSources, target.field, update(translation.profileSources?.[target.field]));
     if (!translation.profileSources) delete translation.profileSources;
   } else if (target.scope === 'section') {
     const entry = target.sectionId && translation.sections && Object.hasOwn(translation.sections, target.sectionId) ? translation.sections[target.sectionId] : undefined;
-    if (entry?.label) entry.source = hash;
+    if (!entry?.label) return;
+    const next = update(entry.source);
+    if (next === undefined) delete entry.source; else entry.source = next;
   } else if (target.itemId && isSafeKey(target.itemId) && translation.items && Object.hasOwn(translation.items, target.itemId)) {
     const entry = translation.items[target.itemId];
     const text = target.versionId ? (Object.hasOwn(entry.versions ?? {}, target.versionId) ? entry.versions![target.versionId] : undefined) : entry.base;
     if (!text || (text as Record<string, unknown>)[target.field] === undefined) return;
     const sources = entry.sources ??= {};
-    if (!target.versionId) assignOrDelete(sources, 'base', withHash(sources.base, target.field, hash));
+    if (!target.versionId) assignOrDelete(sources, 'base', withHash(sources.base, target.field, update(sources.base?.[target.field])));
     else if (isSafeKey(target.versionId)) {
       const versions = sources.versions ??= {};
-      versions[target.versionId] = withHash(versions[target.versionId], target.field, hash)!;
+      const hashes = withHash(versions[target.versionId], target.field, update(versions[target.versionId]?.[target.field]));
+      if (hashes) versions[target.versionId] = hashes; else delete versions[target.versionId];
     }
     tidyItemTranslation(translation, target.itemId);
   }
+}
+
+/**
+ * Declares an existing translation up to date with the current source text, without
+ * changing it (the "I checked, it is still right" action). The automatic-translation flag,
+ * if any, is kept: being up to date is not the same as having been reviewed.
+ */
+export function markTranslationCurrent(resume: Resume, locale: string, target: TranslationTarget, source: string): void {
+  updateStoredFingerprint(resume, locale, target, current => storedFingerprint(source, parseStoredFingerprint(current)?.machine ?? false));
+}
+
+/** Clears the automatic-translation flag of a translation a person has read and accepted. */
+export function markTranslationReviewed(resume: Resume, locale: string, target: TranslationTarget): void {
+  updateStoredFingerprint(resume, locale, target, current => parseStoredFingerprint(current)?.hash);
 }
 
 /** Marks an item as needing no translation (names, technical terms), or clears the mark. */

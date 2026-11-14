@@ -1,4 +1,5 @@
 import { readBoundedJson } from './tailoring.ts';
+import { TRANSLATE_MAX_ITEM_LENGTH, TRANSLATE_MAX_ITEMS, TRANSLATE_MAX_TOTAL_LENGTH } from './lib/translate-limits.ts';
 import { isLocale, isRecord } from './lib/validation.ts';
 
 /**
@@ -16,9 +17,7 @@ export type TranslateProvider = 'libretranslate' | 'deepl';
 export interface TranslateEngine { provider: TranslateProvider; url: string; apiKey: string }
 export interface TranslateItem { text: string; format: 'text' | 'html' }
 
-export const TRANSLATE_MAX_ITEMS = 200;
-export const TRANSLATE_MAX_ITEM_LENGTH = 20_000;
-export const TRANSLATE_MAX_TOTAL_LENGTH = 100_000;
+export { TRANSLATE_MAX_ITEM_LENGTH, TRANSLATE_MAX_ITEMS, TRANSLATE_MAX_TOTAL_LENGTH };
 const BATCH_SIZE = 50; // DeepL accepts at most 50 texts per request; the same size suits LibreTranslate.
 const REQUEST_TIMEOUT_MS = 60_000;
 
