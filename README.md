@@ -98,6 +98,42 @@ Use `PORT` to change the port. The server and Compose port bind to loopback by d
 
 Share links encode the resume in the URL fragment without third-party storage. Recipients must be able to reach your deployment; uploaded avatars are not included automatically.
 
+## Configuration reference
+
+Every setting is an environment variable. Put them in a `.env` file at the project root (start from `.env.example`) and restart; `npm run dev`, `npm start` and Docker Compose all read it. None is required: the defaults give `http://localhost:3000` with the shared demo login `admin` / `admin`.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `HOST` | `127.0.0.1` | Address the server listens on. Use `0.0.0.0` for LAN access. |
+| `PORT` | `3000` | Port. |
+| `DATA_DIR` | `.data` | Where the SQLite database lives. |
+| `LOCAL_USERNAME`, `LOCAL_PASSWORD` | demo login | Private credentials. Set **both** to replace the shared demo login. |
+| `SECURE_COOKIE` | `false` | Set to `true` when serving behind HTTPS. |
+| `AI_API_KEY`, `AI_BASE_URL`, `AI_MODEL` | none (`AI_BASE_URL`: OpenRouter) | Optional AI tailoring, see below. |
+| `TRANSLATE_PROVIDER`, `TRANSLATE_URL`, `TRANSLATE_API_KEY` | none | Optional machine translation, see below. |
+
+```dotenv
+# No configuration is required. Defaults: http://localhost:3000
+HOST=127.0.0.1
+PORT=3000
+# DATA_DIR=.data
+
+# Optional private credentials: set BOTH to replace the shared demo login.
+# LOCAL_USERNAME=myname
+# LOCAL_PASSWORD=replace-with-your-own-password
+# SECURE_COOKIE=true  # Enable when serving behind HTTPS.
+
+# Optional AI tailoring. Your provider charges your own account.
+# AI_API_KEY=
+# AI_BASE_URL=https://openrouter.ai/api/v1
+# AI_MODEL=your-provider-model-id
+
+# Optional machine translation: libretranslate (self-hosted) or deepl.
+# TRANSLATE_PROVIDER=libretranslate
+# TRANSLATE_URL=http://localhost:5000
+# TRANSLATE_API_KEY=
+```
+
 ## Optional AI tailoring
 
 Editing, saving, and exporting work without AI. To enable tailoring, configure a Chat Completions-compatible provider in `.env` and restart:
