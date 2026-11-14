@@ -348,6 +348,11 @@ html:is([lang="zh-CN"], [lang="zh-TW"]) .landing-shell {
 [contenteditable] li { margin-bottom: 2px; }
 [contenteditable] a { color: #8b63f6; text-decoration: underline; cursor: pointer; }
 .resume-paper .summary-text { margin: 0; font-size: var(--resume-size, 12px); color: #334155; }
+.resume-paper .summary-text ul, .resume-paper .summary-text ol { margin: 4px 0 0; padding-left: 18px; }
+.resume-paper .summary-text ul { list-style-type: disc; }
+.resume-paper .summary-text ol { list-style-type: decimal; }
+.resume-paper .summary-text li { margin-bottom: 3px; }
+.resume-paper .summary-text a { color: var(--accent, #8b63f6); text-decoration: underline; }
 
 /* Resume template families */
 .resume-paper.template-leftline {
