@@ -47,6 +47,10 @@ export interface VariantsApi {
   setRowTranslation(row: TranslationRow, value: string): void;
   /** Declares the translation of a row up to date with its current source text. */
   markRowCurrent(row: TranslationRow): void;
+  /** Stores automatic translations (one value per row), flagged until reviewed; texts typed in the meantime are kept. */
+  applyMachineTranslations(entries: { row: TranslationRow; value: string }[]): void;
+  /** Clears the "automatic translation" flag of a row a person has read and accepted. */
+  markRowReviewed(row: TranslationRow): void;
   /** Translations whose source text changed since they were written. */
   staleCount: number;
   isItemSame(itemId: string): boolean;

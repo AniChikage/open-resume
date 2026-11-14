@@ -112,6 +112,23 @@ Choose a model that supports `response_format: json_object`. Keep the key server
 
 Tailoring sends resume text and the job description only after you agree. Contact fields, photos, and hidden sections are excluded; remove any private details inside the body yourself. Review suggestions before saving a separate copy. The original resume stays intact; job descriptions and unaccepted suggestions are not stored in the database.
 
+## Optional machine translation
+
+A resume can be kept in several languages (see the language bar in the editor). Translations are written by hand by default. To also offer automatic translation, pick one engine in `.env` and restart; nothing is sent anywhere until you do:
+
+```dotenv
+# Self-hosted, nothing leaves your network (https://github.com/LibreTranslate/LibreTranslate)
+TRANSLATE_PROVIDER=libretranslate
+TRANSLATE_URL=http://localhost:5000
+# TRANSLATE_API_KEY=only-if-your-server-requires-one
+
+# Or DeepL (a key ending in ":fx" uses the free API endpoint)
+# TRANSLATE_PROVIDER=deepl
+# TRANSLATE_API_KEY=your-deepl-key
+```
+
+The key stays on the server. A "Translate missing texts" button then appears in the translation panel. Only texts that have no translation yet are sent, rich text is sent as HTML so formatting survives, and every automatic translation stays flagged "please review" until you edit it or mark it reviewed. With DeepL the resume text is sent to DeepL; with LibreTranslate it goes to the server you configured.
+
 ## Development
 
 ```sh

@@ -55,8 +55,9 @@ import { LanguageBar,languageName } from '../components/LanguageBar.tsx';
 import { TranslationPanel } from '../components/TranslationPanel.tsx';
 import { Dialog,DialogContent,DialogDescription,DialogFooter,DialogHeader,DialogTitle } from '../components/ui/dialog.tsx';
 import { useActiveLocale } from '../lib/use-active-locale.ts';
-import { addTranslationLocale,markTranslationCurrent,removeTranslationLocale,setItemSame,setItemTranslation,setProfileTranslation,setSectionLabelTranslation,setSourceLocale } from '../lib/translation-edit.ts';
+import { addTranslationLocale,markTranslationCurrent,markTranslationReviewed,removeTranslationLocale,setItemSame,setItemTranslation,setProfileTranslation,setSectionLabelTranslation,setSourceLocale } from '../lib/translation-edit.ts';
 import { buildTranslationRows,isItemMarkedSame } from '../lib/translation-rows.ts';
+import type { TranslationRow } from '../lib/translation-rows.ts';
 import { toStoredValue } from '../lib/version-fields.ts';
 
 import { EditorModes, ResumeCheckPanel, ResumeSharePanel } from '../components/EditorWorkspace.tsx';
@@ -606,12 +607,20 @@ export default function Editor({ resumeId }: {resumeId:string}) {
     versionName: (itemId, versionId) => { for (const s of resume.sections) { const found = s.items.find((x) => x.id === itemId); if (found) return found.versions?.find((v) => v.id === versionId)?.name ?? ''; } return ''; },
     setRowTranslation: (row, value) => {
       if (!localeId) return;
-      updateResume((d) => {
-        if (row.scope === 'profile') setProfileTranslation(d, localeId, row.field as 'headline' | 'city' | 'status', value, row.source);
-        else if (row.scope === 'section') setSectionLabelTranslation(d, localeId, row.sectionId!, value, row.source);
-        else setItemTranslation(d, localeId, row.itemId!, row.versionId ?? null, row.field as never, toStoredValue(row.input, value) as never, row.source);
-      }, `translate:${localeId}:${row.key}`);
+      updateResume((d) => writeTranslationRow(d, localeId, row, value, false), `translate:${localeId}:${row.key}`);
     },
+    applyMachineTranslations: (entries) => {
+      if (!localeId) return;
+      updateResume((d) => {
+        // Rows are looked up again: a text typed (or a source edited) while the request ran must not be overwritten.
+        const live = new Map(buildTranslationRows(d, localeId).map((row) => [row.key, row]));
+        for (const { row, value } of entries) {
+          const current = live.get(row.key);
+          if (current && !current.translated.trim() && current.source === row.source) writeTranslationRow(d, localeId, row, value, true);
+        }
+      }, `translate:${localeId}:automatic`);
+    },
+    markRowReviewed: (row) => { if (localeId) updateResume((d) => markTranslationReviewed(d, localeId, row)); },
     markRowCurrent: (row) => { if (localeId) updateResume((d) => markTranslationCurrent(d, localeId, row, row.source)); },
     staleCount: translationRows.filter((row) => row.stale).length,
     isItemSame: (itemId) => Boolean(localeId && isItemMarkedSame(resume, localeId, itemId)),
@@ -1448,6 +1457,13 @@ function ModuleManager({ resume, onClose, onAddSection, onSection, onMoveSection
       </aside>
     </div>
   );
+}
+
+// Writes the translation typed (or machine-produced) for one row, remembering which source text it answers.
+function writeTranslationRow(d: Resume, locale: string, row: TranslationRow, value: string, machine: boolean) {
+  if (row.scope === 'profile') setProfileTranslation(d, locale, row.field as 'headline' | 'city' | 'status', value, row.source, machine);
+  else if (row.scope === 'section') setSectionLabelTranslation(d, locale, row.sectionId!, value, row.source, machine);
+  else setItemTranslation(d, locale, row.itemId!, row.versionId ?? null, row.field as never, toStoredValue(row.input, value) as never, row.source, machine);
 }
 
 function getItemTitle(section: ResumeSectionData, item: ResumeItemData, t: Translate) {
