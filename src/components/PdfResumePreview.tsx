@@ -1,8 +1,10 @@
-import { Eye, Loader2, Maximize2, ZoomIn, ZoomOut } from 'lucide-react';
+import { Eye, Loader2, Maximize2, MoveHorizontal, ZoomIn, ZoomOut } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import type { PDFDocumentProxy, PDFWorker, RenderTask } from 'pdfjs-dist';
 import type { PdfSnapshot } from '../lib/pdf-snapshot.ts';
 import { workspaceText } from '../lib/editor-workspace-copy.ts';
+import { MAX_ZOOM, MIN_ZOOM, previewScale, readFitMode, writeFitMode } from '../lib/preview-scale.ts';
+import type { FitMode } from '../lib/preview-scale.ts';
 import { useTheme } from '../lib/theme.tsx';
 import { cn } from '../lib/utils.ts';
 import { Button } from './ui/button.tsx';
@@ -25,6 +27,9 @@ export default function PdfResumePreview({ snapshot, pending, error, onRetry, ac
   const [width, setWidth] = useState(600);
   const [height, setHeight] = useState(800);
   const [zoom, setZoom] = useState(1);
+  // Fit the whole page, or just its width (and scroll). Remembered in this browser.
+  const [fit, setFit] = useState<FitMode>(readFitMode);
+  const chooseFit = (mode: FitMode) => { setFit(mode); setZoom(1); writeFitMode(mode); };
   const stage = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const node = stage.current;
@@ -67,20 +72,29 @@ export default function PdfResumePreview({ snapshot, pending, error, onRetry, ac
     return () => { cancelled = true; if (!published) void task?.destroy().catch(() => {}); };
   }, [snapshot, loadAttempt]);
   useEffect(() => () => { rendered?.release(); }, [rendered]);
-  const scale = shown ? Math.min(1.1, width / shown.width, height / shown.height) * zoom : 0.7;
+  const scale = shown ? previewScale(fit, { width, height, pageWidth: shown.width, pageHeight: shown.height }, zoom) : 0.7;
   const count = pdf?.numPages || Math.max(0, (snapshot?.cuts.length || 1) - 1);
   const painting = !rendered || painted.revision !== rendered.revision || painted.count < count;
   const failed = error || renderError;
   return <section className={cn('pdf-preview-surface min-h-0 min-w-0 flex-col bg-muted/55', className)} aria-label={workspaceText(lang, 'pdfPreview')} aria-busy={pending}>
     <header className="flex min-h-12 shrink-0 items-center justify-between gap-2 border-b border-border bg-card px-3">
       <span className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground"><Eye size={14} className="shrink-0 text-primary" /><span>{workspaceText(lang, 'pdfPreview')}{snapshot ? ` · ${snapshot.paper}` : ''}</span>{count > 0 && <span className="whitespace-nowrap">· {workspaceText(lang, 'pages', { count })}</span>}</span>
-      <div className="flex shrink-0 items-center gap-1">{[{ icon: ZoomOut, label: 'Zoom out', action: () => setZoom(value => Math.max(0.5, value - 0.1)) }, { icon: Maximize2, label: 'Fit to screen', action: () => setZoom(1) }, { icon: ZoomIn, label: 'Zoom in', action: () => setZoom(value => Math.min(1.6, value + 0.1)) }].map(control => <button key={control.label} className="grid h-10 w-10 place-items-center rounded-md hover:bg-muted focus-visible:outline-2 focus-visible:outline-primary" title={t(control.label)} aria-label={t(control.label)} onClick={control.action}><control.icon size={15} /></button>)}</div>
+      <div className="flex shrink-0 items-center gap-1">
+        {shown && <span className="mr-1 text-xs tabular-nums text-muted-foreground" aria-label={t('Zoom')}>{Math.round(scale * 100)}%</span>}
+        {[
+          { icon: ZoomOut, label: 'Zoom out', pressed: undefined, action: () => setZoom(value => Math.max(MIN_ZOOM, value - 0.1)) },
+          { icon: Maximize2, label: 'Fit to screen', pressed: fit === 'page' && zoom === 1, action: () => chooseFit('page') },
+          { icon: MoveHorizontal, label: 'Fit to width', pressed: fit === 'width' && zoom === 1, action: () => chooseFit('width') },
+          { icon: ZoomIn, label: 'Zoom in', pressed: undefined, action: () => setZoom(value => Math.min(MAX_ZOOM, value + 0.1)) },
+        ].map(control => <button key={control.label} type="button" className={cn('grid h-10 w-10 place-items-center rounded-md hover:bg-muted focus-visible:outline-2 focus-visible:outline-primary', control.pressed && 'bg-muted text-primary')} title={t(control.label)} aria-label={t(control.label)} aria-pressed={control.pressed} onClick={control.action}><control.icon size={15} /></button>)}
+      </div>
     </header>
     <div className="border-b border-border bg-card/70 px-4 py-2 text-xs leading-5 text-muted-foreground" role={failed ? 'alert' : 'status'}>
       {failed ? <span>{workspaceText(lang, 'previewError')} <Button variant="outline" size="sm" className="ml-2 text-xs" onClick={() => { setLoadAttempt(value => value + 1); onRetry(); }}>{workspaceText(lang, 'retry')}</Button></span> : pending || !pdf || shown !== snapshot || painting ? <span className="inline-flex items-center gap-2"><Loader2 size={13} className="animate-spin" />{workspaceText(lang, snapshot ? 'updating' : 'preparing')}</span> : workspaceText(lang, 'current')}
     </div>
     {count > 1 && !pending && <p className="border-b border-border bg-card/70 px-4 py-2 text-xs leading-5 text-muted-foreground">{workspaceText(lang, 'multiple', { count })}</p>}
-    <div ref={stage} className="min-h-0 flex-1 overflow-auto p-5">
+    {/* The scrollbar's room is always reserved: otherwise fitting the width could flicker when the pages become taller than the panel. */}
+    <div ref={stage} className="min-h-0 flex-1 overflow-auto p-5 [scrollbar-gutter:stable]">
       {shown && pdf && rendered && <div className="resume-pages mx-auto" data-pdf-fingerprint={pdf.fingerprints[0]}>{Array.from({ length: pdf.numPages }, (_, index) => <PdfPage key={`${rendered.revision}-${index}`} pdf={pdf} index={index} snapshot={shown} scale={scale} activeItemId={activeItemId} onLocate={onLocate} onError={() => setRenderError(true)} onReady={() => setPainted(current => current.revision === rendered.revision ? { revision: current.revision, count: current.count + 1 } : current)} />)}</div>}
       {!pdf && !failed && <div className="mx-auto flex min-h-80 max-w-lg items-center justify-center rounded border border-border bg-card"><Loader2 className="animate-spin text-muted-foreground" /></div>}
     </div>
