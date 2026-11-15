@@ -15,7 +15,10 @@ export function TranslationNotice({ onOpen }: { onOpen: () => void }) {
   if (!variants?.localeId) return null;
   return <div role="status" className="mb-3 flex flex-col gap-1.5 rounded-md border border-sky-300 bg-sky-50/70 p-3 text-xs leading-5">
     <span>{t('The preview shows the {language} translation. What you edit here is the {source} source text.', { language: languageName(variants.localeId), source: languageName(variants.sourceLocale) })}</span>
-    <button type="button" className="self-start font-medium underline underline-offset-2 hover:text-foreground" onClick={onOpen}>{t('Open the Translation tab')}</button>
+    <span className="flex flex-wrap gap-x-4 gap-y-1">
+      <button type="button" className="font-medium underline underline-offset-2 hover:text-foreground" onClick={onOpen}>{t('Open the Translation tab')}</button>
+      <button type="button" className="font-medium underline underline-offset-2 hover:text-foreground" onClick={() => variants.selectLocale(null)}>{t('Show the {language} preview', { language: languageName(variants.sourceLocale) })}</button>
+    </span>
   </div>;
 }
 

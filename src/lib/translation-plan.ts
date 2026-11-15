@@ -1,5 +1,6 @@
 import { TRANSLATE_MAX_ITEM_LENGTH, TRANSLATE_MAX_ITEMS, TRANSLATE_MAX_TOTAL_LENGTH } from './translate-limits.ts';
 import type { TranslationRow } from './translation-rows.ts';
+import { linesToRichHtml } from './version-fields.ts';
 
 /**
  * Decides which texts to send to the translation service and how to put the answers
@@ -32,9 +33,11 @@ export function planTranslation(rows: TranslationRow[], rowKeys?: ReadonlySet<st
     if (rowKeys && !rowKeys.has(row.key)) continue;
     // Optional rows (company, school, place) are sent too: a name such as "Career break" does need translating.
     if (!(row.missing || row.optional) || row.translated.trim() || !row.source.trim()) continue;
-    const parts = row.input === 'lines' ? row.source.split('\n').map(line => line.trim()).filter(Boolean) : [row.source];
+    // Rich lines are sent as one HTML text (so the engine sees the whole list) and split back when stored.
+    const parts = row.input === 'richlines' ? [linesToRichHtml(row.source)]
+      : row.input === 'lines' ? row.source.split('\n').map(line => line.trim()).filter(Boolean) : [row.source];
     if (parts.some(part => part.length > TRANSLATE_MAX_ITEM_LENGTH)) { skipped.push(row.key); continue; }
-    const format = row.input === 'rich' ? 'html' : 'text';
+    const format = row.input === 'rich' || row.input === 'richlines' ? 'html' : 'text';
     parts.forEach((text, index) => items.push({ rowKey: row.key, ...(row.input === 'lines' ? { line: index } : {}), text, format }));
   }
   return { items, skipped };
