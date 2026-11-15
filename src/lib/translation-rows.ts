@@ -2,6 +2,7 @@ import { SECTION_TEMPLATES } from '../data.ts';
 import type { ItemText, Resume, ResumeItem } from '../types.ts';
 import type { FieldInputKind } from './version-fields.ts';
 import { fingerprint, parseStoredFingerprint } from './fingerprint.ts';
+import { isRichHtml } from './resume-content.ts';
 import { toDisplayValue, versionFieldSpecs } from './version-fields.ts';
 
 /**
@@ -56,6 +57,8 @@ const EXTRA_FIELDS: FieldDef[] = [
 ];
 
 const isFilled = (value: string) => value.trim() !== '';
+/** A list of lines is edited as rich text when its lines hold formatting (the legacy bullets and details). */
+const inputFor = (spec: FieldDef, source: string): FieldInputKind => spec.input === 'lines' && source.split('\n').some(isRichHtml) ? 'richlines' : spec.input;
 /** A translation is stale when it exists, a fingerprint of its source was kept, and the source no longer matches it. */
 const isStale = (translated: string, source: string, stored: string | undefined) => {
   const parsed = parseStoredFingerprint(stored);
@@ -106,13 +109,13 @@ export function buildTranslationRows(resume: Resume, locale: string): Translatio
         const source = toDisplayValue(item[spec.field]);
         if (isFilled(source)) {
           const translated = toDisplayValue(itemTranslation?.base?.[spec.field]);
-          rows.push({ key: `item:${item.id}:${spec.field}`, scope: 'item', field: spec.field, label: spec.label, input: spec.input, sectionId: section.id, itemId: item.id, source, translated, missing: !same && !spec.optional && !isFilled(translated), stale: isStale(translated, source, own(itemTranslation?.sources?.base, spec.field)), machine: isMachine(translated, own(itemTranslation?.sources?.base, spec.field)), optional: Boolean(spec.optional) });
+          rows.push({ key: `item:${item.id}:${spec.field}`, scope: 'item', field: spec.field, label: spec.label, input: inputFor(spec, source), sectionId: section.id, itemId: item.id, source, translated, missing: !same && !spec.optional && !isFilled(translated), stale: isStale(translated, source, own(itemTranslation?.sources?.base, spec.field)), machine: isMachine(translated, own(itemTranslation?.sources?.base, spec.field)), optional: Boolean(spec.optional) });
         }
         for (const version of item.versions ?? []) {
           const versionSource = toDisplayValue(version.content[spec.field]);
           if (!isFilled(versionSource)) continue;
           const translated = toDisplayValue(own(itemTranslation?.versions, version.id)?.[spec.field]);
-          rows.push({ key: `item:${item.id}:${version.id}:${spec.field}`, scope: 'item', field: spec.field, label: spec.label, input: spec.input, sectionId: section.id, itemId: item.id, versionId: version.id, source: versionSource, translated, missing: !same && !spec.optional && !isFilled(translated), stale: isStale(translated, versionSource, own(own(itemTranslation?.sources?.versions, version.id), spec.field)), machine: isMachine(translated, own(own(itemTranslation?.sources?.versions, version.id), spec.field)), optional: Boolean(spec.optional) });
+          rows.push({ key: `item:${item.id}:${version.id}:${spec.field}`, scope: 'item', field: spec.field, label: spec.label, input: inputFor(spec, versionSource), sectionId: section.id, itemId: item.id, versionId: version.id, source: versionSource, translated, missing: !same && !spec.optional && !isFilled(translated), stale: isStale(translated, versionSource, own(own(itemTranslation?.sources?.versions, version.id), spec.field)), machine: isMachine(translated, own(own(itemTranslation?.sources?.versions, version.id), spec.field)), optional: Boolean(spec.optional) });
         }
       }
     }

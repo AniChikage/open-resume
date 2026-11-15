@@ -52,7 +52,7 @@ import type { VariantsApi } from '../lib/variants-context.ts';
 import { addItemVersion,createPreset,deleteItemVersion,deletePreset,duplicatePreset,findPreset,pruneVariants,renameItemVersion,renamePreset,setItemChoice,setSectionHidden,setVersionField } from '../lib/variants-edit.ts';
 import { getSummaryBody,toRichHtml } from '../lib/resume-content.ts';
 import { DEFAULT_SOURCE_LOCALE,resolveResume } from '../lib/variants.ts';
-import { LanguageBar,languageName } from '../components/LanguageBar.tsx';
+import { languageName } from '../components/LanguageBar.tsx';
 import { TranslationNotice,TranslationTab } from '../components/TranslationTab.tsx';
 import { Dialog,DialogContent,DialogDescription,DialogFooter,DialogHeader,DialogTitle } from '../components/ui/dialog.tsx';
 import { exportWarnings } from '../lib/export-warnings.ts';
@@ -60,7 +60,7 @@ import { useActiveLocale } from '../lib/use-active-locale.ts';
 import { addTranslationLocale,markTranslationCurrent,markTranslationReviewed,removeTranslationLocale,setItemSame,setItemTranslation,setProfileTranslation,setSectionLabelTranslation,setSourceLocale } from '../lib/translation-edit.ts';
 import { buildTranslationRows,isItemMarkedSame } from '../lib/translation-rows.ts';
 import type { TranslationRow } from '../lib/translation-rows.ts';
-import { toStoredValue } from '../lib/version-fields.ts';
+import { linesToRichHtml,toStoredValue } from '../lib/version-fields.ts';
 
 import { EditorModes, ResumeCheckPanel, ResumeSharePanel } from '../components/EditorWorkspace.tsx';
 import { workspaceText } from '../lib/editor-workspace-copy.ts';
@@ -869,7 +869,6 @@ function EditorPanel({ resume, activeItemId, onProfile, onAvatar, onSection, onI
     <section className="editor-content-panel" aria-label={t('Resume editor')}>
       <div className="editor-content-heading"><h2>{workspaceText(lang, 'content')}</h2><p>{visualText(lang, 'contentHelp')}</p></div>
       <PresetBar />
-      <LanguageBar />
       <TranslationNotice onOpen={onOpenTranslation} />
       <>
         <EditorOverview stats={stats} onCheck={onCheck} />
@@ -1045,6 +1044,8 @@ function itemDefaultText(kind: string, item: ResumeItemData, field: keyof ItemTe
 function VersionFieldInput({ input, label, value, onChange }: FieldInputProps) {
   // Stored texts may predate formatting (plain, with line breaks): show them as they always looked.
   if (input === 'rich') return <RichTextEditor label={label} value={toRichHtml(value)} onChange={onChange} />;
+  // A list whose lines hold formatting is shown and edited as one rich text.
+  if (input === 'richlines') return <RichTextEditor label={label} value={toRichHtml(linesToRichHtml(value))} onChange={onChange} />;
   if (input === 'line') return <Field label={label} value={value} onChange={onChange} />;
   return <TextArea label={label} value={value} onChange={onChange} />;
 }

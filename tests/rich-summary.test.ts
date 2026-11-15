@@ -62,3 +62,41 @@ test('the Word export accepts a summary with bold passages, and a plain one with
     assert.ok(blob.size > 2000, 'a real .docx document is produced');
   }
 });
+
+// ---- Lists of lines that hold formatting (the legacy `bullets` and `details`) -------------------------------
+
+test('a list whose lines hold formatting is edited as one rich text and stored as lines again', async () => {
+  const { linesToRichHtml, richHtmlToLines, toStoredValue } = await import('../src/lib/version-fields.ts');
+  assert.equal(linesToRichHtml('<strong>First</strong> point\nSecond point\n\n  Third  '), '<strong>First</strong> point<br>Second point<br>Third');
+  assert.deepEqual(richHtmlToLines('<strong>First</strong> point<br>Second point<br />\n<br>Third'), ['<strong>First</strong> point', 'Second point', 'Third']);
+  assert.deepEqual(toStoredValue('richlines', 'A<br>B'), ['A', 'B']);
+  assert.deepEqual(toStoredValue('richlines', ''), []);
+  // The round trip through the editor changes nothing.
+  const lines = ['<em>One</em>', 'Two with <a href="https://example.com">a link</a>'];
+  assert.deepEqual(richHtmlToLines(linesToRichHtml(lines.join('\n'))), lines);
+});
+
+test('the translation panel offers rich text for formatted lists, and plain lines for plain ones', async () => {
+  const { buildTranslationRows } = await import('../src/lib/translation-rows.ts');
+  const resume: Resume = {
+    title: 'Fixture',
+    profile: { name: 'Ada', email: '', phone: '', website: '', city: '', birthday: '', status: '', headline: '', avatar: '' },
+    sections: [
+      { id: 'edu', type: 'education', label: 'Education', visible: true, items: [{ id: 'e1', school: 'Open University', details: ['Studied <strong>algorithms</strong>', 'Graduated with honours'] }] },
+      { id: 'skills', type: 'skills', label: 'Skills', visible: true, items: [{ id: 's1', title: 'Core', values: ['SQL', 'Go'] }] },
+    ],
+  };
+  const rows = buildTranslationRows(resume, 'fr');
+  assert.equal(rows.find(row => row.key === 'item:e1:details')!.input, 'richlines');
+  assert.equal(rows.find(row => row.key === 'item:s1:values')!.input, 'lines', 'plain skills stay plain lines');
+});
+
+test('formatted lists are sent for automatic translation as one HTML text and come back as lines', async () => {
+  const { planTranslation, assembleTranslations } = await import('../src/lib/translation-plan.ts');
+  const { toStoredValue } = await import('../src/lib/version-fields.ts');
+  const row = { key: 'item:e1:details', scope: 'item' as const, field: 'details', label: 'Additional details', input: 'richlines' as const, source: 'Studied <strong>algorithms</strong>\nGraduated', translated: '', missing: true, stale: false, machine: false, optional: false };
+  const plan = planTranslation([row]);
+  assert.deepEqual(plan.items, [{ rowKey: 'item:e1:details', text: 'Studied <strong>algorithms</strong><br>Graduated', format: 'html' }]);
+  const answers = assembleTranslations(plan.items, ['Étudié <strong>les algorithmes</strong><br>Diplômé']);
+  assert.deepEqual(toStoredValue('richlines', answers.get('item:e1:details')!), ['Étudié <strong>les algorithmes</strong>', 'Diplômé']);
+});

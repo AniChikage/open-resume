@@ -1,7 +1,10 @@
 import type { ItemText } from '../types.ts';
 
-/** How a version field is typed: one line, a paragraph, rich text, or one entry per line. */
-export type FieldInputKind = 'line' | 'text' | 'rich' | 'lines';
+/**
+ * How a version field is typed: one line, a paragraph, rich text, one entry per line, or a list
+ * whose lines hold rich text (the `bullets` and `details` of older resumes), edited as one rich text.
+ */
+export type FieldInputKind = 'line' | 'text' | 'rich' | 'lines' | 'richlines';
 export interface FieldInputProps { input: FieldInputKind; label: string; value: string; onChange(value: string): void }
 export interface VersionFieldSpec { field: keyof ItemText; label: string; input: FieldInputKind }
 
@@ -35,7 +38,18 @@ export function versionFieldSpecs(kind: string): VersionFieldSpec[] {
 
 /** Text typed in an input, as stored in a version: lists are one entry per non-blank line. */
 export function toStoredValue(input: FieldInputKind, text: string): string | string[] {
+  if (input === 'richlines') return richHtmlToLines(text);
   return input === 'lines' ? text.split('\n').map(line => line.trim()).filter(Boolean) : text;
+}
+
+/** The lines of a rich text edited as one block: the editor separates lines with <br>. */
+export function richHtmlToLines(html: string): string[] {
+  return html.split(/<br\s*\/?>/i).map(line => line.trim()).filter(Boolean);
+}
+
+/** Lines as the rich text editor shows them: one <br> between lines. */
+export function linesToRichHtml(lines: string): string {
+  return lines.split('\n').map(line => line.trim()).filter(Boolean).join('<br>');
 }
 
 /** A stored version value, as shown in an input. */
