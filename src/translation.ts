@@ -66,14 +66,18 @@ export function deeplTargetCode(locale: string): string {
 
 class ProviderError extends Error {}
 
-async function post(fetchImpl: typeof fetch, url: string, headers: Record<string, string>, body: unknown): Promise<unknown> {
-  const response = await fetchImpl(url, { method: 'POST', signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS), headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(body) });
+async function send(fetchImpl: typeof fetch, method: 'GET' | 'POST', url: string, headers: Record<string, string>, body?: unknown): Promise<unknown> {
+  const response = await fetchImpl(url, {
+    method, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS), headers: { ...(body === undefined ? {} : { 'Content-Type': 'application/json' }), ...headers },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  });
   if (!response.ok) {
     await response.body?.cancel();
     throw new ProviderError(response.status === 429 || response.status === 456 ? 'PROVIDER_BUSY' : 'TRANSLATE_UNAVAILABLE');
   }
   try { return await readBoundedJson(response, 2_000_000); } catch { throw new ProviderError('TRANSLATE_UNAVAILABLE'); }
 }
+const post = (fetchImpl: typeof fetch, url: string, headers: Record<string, string>, body: unknown) => send(fetchImpl, 'POST', url, headers, body);
 
 const stringArray = (value: unknown, length: number): string[] => {
   if (!Array.isArray(value) || value.length !== length || !value.every(entry => typeof entry === 'string')) throw new ProviderError('TRANSLATE_UNAVAILABLE');
@@ -144,6 +148,63 @@ export async function handleTranslation(request: Request, env: NodeJS.ProcessEnv
   try {
     const translations = await translateItems(engine, items, source, target, fetchImpl);
     return json({ translations, provider: engine.provider });
+  } catch (error) {
+    if (error instanceof ProviderError && error.message === 'PROVIDER_BUSY') return failure('PROVIDER_BUSY', 429, { 'Retry-After': '30' });
+    return failure('TRANSLATE_UNAVAILABLE', 503);
+  }
+}
+
+// ---- Languages the engine offers ---------------------------------------------
+
+export interface EngineLanguage { code: string; name: string }
+
+/** Engine code -> the locale used in the app (which already has "zh" = Simplified and "zh-TW" = Traditional). */
+const libreLocale = (code: string) => code === 'zt' ? 'zh-TW' : code;
+export function deeplLocale(code: string): string {
+  const [language, region] = code.toUpperCase().split('-');
+  if (language === 'ZH') return region === 'HANT' ? 'zh-TW' : 'zh';
+  return region ? `${language.toLowerCase()}-${region}` : language.toLowerCase();
+}
+
+/**
+ * The languages the configured engine can translate into, from the engine itself (so the list
+ * follows what the server really offers). Languages the source cannot be translated into are left out.
+ */
+export async function listEngineLanguages(engine: TranslateEngine, source: string, fetchImpl: typeof fetch = fetch): Promise<EngineLanguage[]> {
+  const sourceBase = lower(source).split('-')[0];
+  const found: EngineLanguage[] = [];
+  if (engine.provider === 'libretranslate') {
+    const data = await send(fetchImpl, 'GET', `${engine.url}/languages`, {});
+    if (!Array.isArray(data)) throw new ProviderError('TRANSLATE_UNAVAILABLE');
+    const entries = data.filter((entry): entry is Record<string, unknown> & { code: string; name: string } => isRecord(entry) && typeof entry.code === 'string' && typeof entry.name === 'string');
+    const sourceEntry = entries.find(entry => entry.code === libreCode(source));
+    const targets = sourceEntry && Array.isArray(sourceEntry.targets) ? new Set(sourceEntry.targets) : null;
+    for (const entry of entries) if (entry.code !== libreCode(source) && (!targets || targets.has(entry.code))) found.push({ code: libreLocale(entry.code), name: entry.name });
+  } else {
+    const data = await send(fetchImpl, 'GET', `${engine.url}/v2/languages?type=target`, { Authorization: `DeepL-Auth-Key ${engine.apiKey}` });
+    if (!Array.isArray(data)) throw new ProviderError('TRANSLATE_UNAVAILABLE');
+    for (const entry of data) {
+      if (!isRecord(entry) || typeof entry.language !== 'string' || typeof entry.name !== 'string') continue;
+      const code = deeplLocale(entry.language);
+      // "English (British)" is pointless for an English source; Chinese is the exception (Simplified to Traditional is real work).
+      if (code.split('-')[0] === sourceBase && sourceBase !== 'zh') continue;
+      if (code !== lower(source)) found.push({ code, name: entry.name });
+    }
+  }
+  const seen = new Set<string>();
+  return found.filter(language => isLocale(language.code) && !seen.has(language.code) && seen.add(language.code))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export async function handleTranslationLanguages(request: Request, env: NodeJS.ProcessEnv, user: { id: string } | null, { fetchImpl = fetch }: { fetchImpl?: typeof fetch } = {}) {
+  if (!user?.id) return failure('UNAUTHORIZED', 401);
+  if (request.method !== 'GET') return failure('METHOD_NOT_ALLOWED', 405, { Allow: 'GET' });
+  const source = new URL(request.url).searchParams.get('source');
+  if (!isLocale(source)) return failure('INVALID_INPUT', 400);
+  const engine = translateEngine(env);
+  if (!engine) return failure('TRANSLATE_UNAVAILABLE', 503);
+  try {
+    return json({ languages: await listEngineLanguages(engine, source, fetchImpl), provider: engine.provider });
   } catch (error) {
     if (error instanceof ProviderError && error.message === 'PROVIDER_BUSY') return failure('PROVIDER_BUSY', 429, { 'Retry-After': '30' });
     return failure('TRANSLATE_UNAVAILABLE', 503);
