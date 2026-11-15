@@ -22,12 +22,18 @@ export function LanguageBar() {
   const [confirmRemove, setConfirmRemove] = useState(false);
   // The languages the translation engine offers, when one is configured on the server.
   const [engineLanguages, setEngineLanguages] = useState<EngineLanguageInfo[]>([]);
+  const [engineFailed, setEngineFailed] = useState(false);
   const hasEngine = Boolean(config?.translateProvider);
   const sourceLocale = variants?.sourceLocale;
   useEffect(() => {
+    setEngineFailed(false);
     if (!hasEngine || !sourceLocale) { setEngineLanguages([]); return; }
     let cancelled = false;
-    void fetchEngineLanguages(sourceLocale).then(list => { if (!cancelled) setEngineLanguages(list); });
+    void fetchEngineLanguages(sourceLocale).then(list => {
+      if (cancelled) return;
+      setEngineLanguages(list ?? []);
+      setEngineFailed(list === null);
+    });
     return () => { cancelled = true; };
   }, [hasEngine, sourceLocale]);
   if (!variants) return null;
@@ -77,6 +83,9 @@ export function LanguageBar() {
         {addable.map(option => <option key={option.code} value={option.code}>{optionText(option)}</option>)}
       </select>
     </div>}
+    {hasEngine && engineFailed && <p className="rounded-md border border-amber-300 bg-amber-50/70 p-2 text-xs leading-5" role="alert">
+      {t('Could not load the list of languages from the translation service ({provider}); the default languages are shown. Reload the page to try again.', { provider: config?.translateProvider === 'deepl' ? 'DeepL' : 'LibreTranslate' })}
+    </p>}
     {noPdf.length > 0 && <p className="rounded-md border border-amber-300 bg-amber-50/70 p-2 text-xs leading-5" role="note">
       {t('The PDF and PNG exports cannot draw the alphabet of {languages} yet (no font for it), so use the Word export for them.', { languages: noPdf.map(languageName).join(', ') })}
     </p>}

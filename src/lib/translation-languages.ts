@@ -45,25 +45,25 @@ export function buildLanguageOptions(languages: readonly EngineLanguageInfo[], k
     .sort((a, b) => a.label.localeCompare(b.label));
 }
 
-const cache = new Map<string, Promise<EngineLanguageInfo[]>>();
+const cache = new Map<string, Promise<EngineLanguageInfo[] | null>>();
 
 /**
- * The languages the server's translation engine can translate into from `source`. Remembered
- * for the page's lifetime; any failure returns an empty list so callers fall back to the
- * languages the app ships.
+ * The languages the server's translation engine can translate into from `source`, or null when
+ * they could not be loaded (callers then fall back to the languages the app ships and may say
+ * so). A successful list is remembered for the page's lifetime; a failure never is, so the
+ * next call tries again.
  */
-export function fetchEngineLanguages(source: string, fetchImpl: typeof fetch = fetch): Promise<EngineLanguageInfo[]> {
+export function fetchEngineLanguages(source: string, fetchImpl: typeof fetch = fetch): Promise<EngineLanguageInfo[] | null> {
   const cached = cache.get(source);
   if (cached) return cached;
-  const request = (async () => {
+  const request = (async (): Promise<EngineLanguageInfo[] | null> => {
     const response = await fetchImpl(`/api/translate/languages?source=${encodeURIComponent(source)}`, { credentials: 'same-origin' });
-    if (!response.ok) return [];
+    if (!response.ok) return null;
     const data: unknown = await response.json();
     const list = data && typeof data === 'object' ? (data as { languages?: unknown }).languages : undefined;
-    return Array.isArray(list)
-      ? list.filter((entry): entry is EngineLanguageInfo => !!entry && typeof entry === 'object' && typeof (entry as EngineLanguageInfo).code === 'string')
-      : [];
-  })().catch(() => { cache.delete(source); return []; });
+    if (!Array.isArray(list)) return null;
+    return list.filter((entry): entry is EngineLanguageInfo => !!entry && typeof entry === 'object' && typeof (entry as EngineLanguageInfo).code === 'string');
+  })().catch(() => null).then(result => { if (result === null) cache.delete(source); return result; });
   cache.set(source, request);
   return request;
 }

@@ -125,21 +125,27 @@ test('language options are sorted by name, de-duplicated, and mark the Word-only
   assert.equal(options.find(option => option.code === 'fr')!.label, 'Français');
 });
 
-test('the browser asks for the engine languages once per source, and falls back to nothing on any failure', async () => {
+test('the browser asks for the engine languages once per source, and never remembers a failure', async () => {
   clearEngineLanguageCache();
   let calls = 0;
   const ok = (async () => { calls += 1; return Response.json({ languages: [{ code: 'fr', name: 'French' }, { nope: true }, { code: 'de' }] }); }) as typeof fetch;
   assert.deepEqual(await fetchEngineLanguages('en', ok), [{ code: 'fr', name: 'French' }, { code: 'de' }]);
   await fetchEngineLanguages('en', ok);
-  assert.equal(calls, 1, 'remembered');
+  assert.equal(calls, 1, 'a successful list is remembered');
   await fetchEngineLanguages('fr', ok);
   assert.equal(calls, 2, 'a new source asks again');
 
-  clearEngineLanguageCache();
-  assert.deepEqual(await fetchEngineLanguages('en', (async () => new Response('{}', { status: 503 })) as typeof fetch), []);
-  let attempts = 0;
-  const flaky = (async () => { attempts += 1; if (attempts === 1) throw new Error('offline'); return Response.json({ languages: [{ code: 'fr' }] }); }) as typeof fetch;
-  clearEngineLanguageCache();
-  assert.deepEqual(await fetchEngineLanguages('en', flaky), []);
-  assert.deepEqual(await fetchEngineLanguages('en', flaky), [{ code: 'fr' }], 'a failure is not remembered');
+  // Every kind of failure is reported as null (so the interface can say so) and is retried next time.
+  const failures: [string, typeof fetch][] = [
+    ['server error', (async () => new Response('{}', { status: 503 })) as typeof fetch],
+    ['not signed in', (async () => new Response('{}', { status: 401 })) as typeof fetch],
+    ['offline', (async () => { throw new Error('offline'); }) as typeof fetch],
+    ['not JSON', (async () => new Response('<html>', { status: 200 })) as typeof fetch],
+    ['no list', (async () => Response.json({ not: 'a list' })) as typeof fetch],
+  ];
+  for (const [label, failing] of failures) {
+    clearEngineLanguageCache();
+    assert.equal(await fetchEngineLanguages('en', failing), null, label);
+    assert.deepEqual(await fetchEngineLanguages('en', ok), [{ code: 'fr', name: 'French' }, { code: 'de' }], `${label}: the next call tries again`);
+  }
 });
