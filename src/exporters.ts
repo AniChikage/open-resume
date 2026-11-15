@@ -16,6 +16,8 @@ TEMPLATE_VARIANTS
 import { A4_HEIGHT_MM,A4_WIDTH_MM,getSmartPageCuts } from './lib/pagination.ts';
 import { saveCanvasAsPng } from './lib/png-export.ts';
 import { parseLinearGradient } from './lib/pdf-gradient.ts';
+import { applyPdfMetadata } from './lib/pdf-metadata.ts';
+import type { PdfMetadata } from './lib/pdf-metadata.ts';
 import type { Resume,ResumeItem,ResumeProfile,ResumeSection,ResumeSettings } from './types.ts';
 type FontSet = { normal:PDFFont; bold:PDFFont };
 type CssColor = { color:RGB; opacity:number; raw?:{r:number;g:number;b:number} };
@@ -144,13 +146,14 @@ export const exportResumeAsVectorPdf = async (resume: Resume, settings: ResumeSe
   downloadBlob(new Blob([new Uint8Array(bytes)], { type: 'application/pdf' }), filename);
 };
 
-export const buildResumePdf = async (node: HTMLElement) => {
+export const buildResumePdf = async (node: HTMLElement, metadata?: PdfMetadata) => {
   const pdfDoc = await PDFDocument.create();
   pdfDoc.registerFontkit(fontkit);
   const rootStyle = node.ownerDocument.defaultView!.getComputedStyle(node);
   const fontSet = await getPdfFontSet(pdfDoc, getFontFamilyKey(rootStyle.fontFamily));
   const renderer = new DomVectorPdfRenderer(pdfDoc, fontSet, node);
   await renderer.render();
+  if (metadata) applyPdfMetadata(pdfDoc, metadata);
   return pdfDoc.save();
 };
 

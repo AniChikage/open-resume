@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { RefObject } from 'react';
 import { createPdfCache, createPdfSnapshot } from './pdf-snapshot.ts';
+import type { PdfMetadata } from './pdf-metadata.ts';
 import type { PdfSnapshot } from './pdf-snapshot.ts';
 
 /** Revision keys follow immutable document references without serializing photos. */
@@ -12,11 +13,14 @@ export function usePdfDocumentKey(resume: unknown, settings: unknown, language: 
   return resume ? `${language}:${previous.current.revision}` : '';
 }
 
-export function usePdfPreview(source: RefObject<HTMLElement>, key: string) {
+export function usePdfPreview(source: RefObject<HTMLElement>, key: string, metadata?: PdfMetadata) {
   const cache = useRef(createPdfCache<PdfSnapshot>());
   const currentKey = useRef(key);
   const queue = useRef<Promise<unknown>>(Promise.resolve());
   currentKey.current = key;
+  // Read when a snapshot is built, so it describes the document the key stands for.
+  const metadataRef = useRef(metadata);
+  metadataRef.current = metadata;
   useEffect(() => {
     currentKey.current = key;
     return () => { currentKey.current = ''; };
@@ -29,7 +33,7 @@ export function usePdfPreview(source: RefObject<HTMLElement>, key: string) {
     const snapshot = await cache.current.get(key, () => {
       const next = queue.current.catch(() => {}).then(() => {
         if (!source.current || key !== currentKey.current) throw new Error('PREVIEW_CHANGED');
-        return createPdfSnapshot(source.current, () => key === currentKey.current);
+        return createPdfSnapshot(source.current, () => key === currentKey.current, metadataRef.current);
       });
       queue.current = next;
       return next;

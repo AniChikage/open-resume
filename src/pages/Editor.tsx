@@ -374,7 +374,9 @@ export default function Editor({ resumeId }: {resumeId:string}) {
   const translationRows = useMemo(() => resume && localeId ? buildTranslationRows(resume, localeId) : [], [resume, localeId]);
   const [pendingExport, setPendingExport] = useState<{ type: string; count: number; noFont: boolean } | null>(null);
   const pdfKey = usePdfDocumentKey(renderedResume, settings, lang);
-  const pdfPreview = usePdfPreview(paperRef, pdfKey);
+  // The PDF's properties: the title viewers show, the author, and the language of the text.
+  const pdfMetadata = renderedResume ? { title: renderedResume.title || renderedResume.profile.name, author: renderedResume.profile.name, language: contentLang } : undefined;
+  const pdfPreview = usePdfPreview(paperRef, pdfKey, pdfMetadata);
   const latestDocumentKey = useRef(pdfKey);
   latestDocumentKey.current = pdfKey;
   const selectView = (view: string) => { setActiveView(view); setPreviewOnly(false); };
