@@ -67,13 +67,18 @@ export function deeplTargetCode(locale: string): string {
 class ProviderError extends Error {}
 
 async function send(fetchImpl: typeof fetch, method: 'GET' | 'POST', url: string, headers: Record<string, string>, body?: unknown): Promise<unknown> {
-  const response = await fetchImpl(url, {
-    method, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS), headers: { ...(body === undefined ? {} : { 'Content-Type': 'application/json' }), ...headers },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  });
+  let response: Response;
+  try {
+    response = await fetchImpl(url, {
+      method, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS), headers: { ...(body === undefined ? {} : { 'Content-Type': 'application/json' }), ...headers },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    });
+  } catch { throw new ProviderError('PROVIDER_UNREACHABLE'); }
   if (!response.ok) {
     await response.body?.cancel();
-    throw new ProviderError(response.status === 429 || response.status === 456 ? 'PROVIDER_BUSY' : 'TRANSLATE_UNAVAILABLE');
+    // The engine's own words are never passed on (they could echo what was sent); only what went wrong.
+    throw new ProviderError(response.status === 429 || response.status === 456 ? 'PROVIDER_BUSY'
+      : response.status === 401 || response.status === 403 ? 'PROVIDER_AUTH' : 'TRANSLATE_UNAVAILABLE');
   }
   try { return await readBoundedJson(response, 2_000_000); } catch { throw new ProviderError('TRANSLATE_UNAVAILABLE'); }
 }
@@ -116,6 +121,15 @@ export async function translateItems(engine: TranslateEngine, items: TranslateIt
   return results;
 }
 
+/** Turns a failure of the engine into an answer that says what went wrong, without leaking the engine's own message. */
+function providerFailure(error: unknown) {
+  const code = error instanceof ProviderError ? error.message : 'TRANSLATE_UNAVAILABLE';
+  if (code === 'PROVIDER_BUSY') return failure('PROVIDER_BUSY', 429, { 'Retry-After': '30' });
+  if (code === 'PROVIDER_AUTH') return failure('PROVIDER_AUTH', 502);
+  if (code === 'PROVIDER_UNREACHABLE') return failure('PROVIDER_UNREACHABLE', 503);
+  return failure('TRANSLATE_UNAVAILABLE', 503);
+}
+
 // ---- Request handler --------------------------------------------------------
 
 export async function handleTranslation(request: Request, env: NodeJS.ProcessEnv, user: { id: string } | null, { fetchImpl = fetch }: { fetchImpl?: typeof fetch } = {}) {
@@ -149,8 +163,7 @@ export async function handleTranslation(request: Request, env: NodeJS.ProcessEnv
     const translations = await translateItems(engine, items, source, target, fetchImpl);
     return json({ translations, provider: engine.provider });
   } catch (error) {
-    if (error instanceof ProviderError && error.message === 'PROVIDER_BUSY') return failure('PROVIDER_BUSY', 429, { 'Retry-After': '30' });
-    return failure('TRANSLATE_UNAVAILABLE', 503);
+    return providerFailure(error);
   }
 }
 
@@ -206,7 +219,6 @@ export async function handleTranslationLanguages(request: Request, env: NodeJS.P
   try {
     return json({ languages: await listEngineLanguages(engine, source, fetchImpl), provider: engine.provider });
   } catch (error) {
-    if (error instanceof ProviderError && error.message === 'PROVIDER_BUSY') return failure('PROVIDER_BUSY', 429, { 'Retry-After': '30' });
-    return failure('TRANSLATE_UNAVAILABLE', 503);
+    return providerFailure(error);
   }
 }

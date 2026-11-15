@@ -2,7 +2,7 @@ import { Trash2 } from 'lucide-react';
 import { useEffect, useId, useState } from 'react';
 import { useAuth } from '../lib/auth.tsx';
 import { SUPPORTED_LANGUAGES, useTheme } from '../lib/theme.tsx';
-import { buildLanguageOptions, fetchEngineLanguages, isPdfRenderable, languageLabel } from '../lib/translation-languages.ts';
+import { buildLanguageOptions, fetchEngineLanguages, isPdfRenderable, languageLabel, languagesErrorMessage } from '../lib/translation-languages.ts';
 import type { EngineLanguageInfo } from '../lib/translation-languages.ts';
 import { cn } from '../lib/utils.ts';
 import { useVariants } from '../lib/variants-context.ts';
@@ -22,17 +22,17 @@ export function LanguageBar() {
   const [confirmRemove, setConfirmRemove] = useState(false);
   // The languages the translation engine offers, when one is configured on the server.
   const [engineLanguages, setEngineLanguages] = useState<EngineLanguageInfo[]>([]);
-  const [engineFailed, setEngineFailed] = useState(false);
+  const [engineError, setEngineError] = useState<string | null>(null);
   const hasEngine = Boolean(config?.translateProvider);
   const sourceLocale = variants?.sourceLocale;
   useEffect(() => {
-    setEngineFailed(false);
+    setEngineError(null);
     if (!hasEngine || !sourceLocale) { setEngineLanguages([]); return; }
     let cancelled = false;
-    void fetchEngineLanguages(sourceLocale).then(list => {
+    void fetchEngineLanguages(sourceLocale).then(result => {
       if (cancelled) return;
-      setEngineLanguages(list ?? []);
-      setEngineFailed(list === null);
+      setEngineLanguages(result.languages);
+      setEngineError(result.error ?? null);
     });
     return () => { cancelled = true; };
   }, [hasEngine, sourceLocale]);
@@ -83,8 +83,10 @@ export function LanguageBar() {
         {addable.map(option => <option key={option.code} value={option.code}>{optionText(option)}</option>)}
       </select>
     </div>}
-    {hasEngine && engineFailed && <p className="rounded-md border border-amber-300 bg-amber-50/70 p-2 text-xs leading-5" role="alert">
-      {t('Could not load the list of languages from the translation service ({provider}); the default languages are shown. Reload the page to try again.', { provider: config?.translateProvider === 'deepl' ? 'DeepL' : 'LibreTranslate' })}
+    {hasEngine && engineError && <p className="rounded-md border border-amber-300 bg-amber-50/70 p-2 text-xs leading-5" role="alert">
+      {t('Could not load the list of languages from the translation service ({provider}); the default languages are shown.', { provider: config?.translateProvider === 'deepl' ? 'DeepL' : 'LibreTranslate' })}{' '}
+      {t(languagesErrorMessage(engineError))}{' '}
+      <span className="text-muted-foreground">{t('Reload the page to try again.')} ({engineError})</span>
     </p>}
     {noPdf.length > 0 && <p className="rounded-md border border-amber-300 bg-amber-50/70 p-2 text-xs leading-5" role="note">
       {t('The PDF and PNG exports cannot draw the alphabet of {languages} yet (no font for it), so use the Word export for them.', { languages: noPdf.map(languageName).join(', ') })}

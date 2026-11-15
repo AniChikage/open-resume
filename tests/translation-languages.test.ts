@@ -5,8 +5,8 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { createApp } from '../server/app.ts';
-import { clearEngineLanguageCache, buildLanguageOptions, fetchEngineLanguages, isPdfRenderable, languageLabel } from '../src/lib/translation-languages.ts';
-import { deeplLocale, handleTranslationLanguages, listEngineLanguages, translateEngine } from '../src/translation.ts';
+import { clearEngineLanguageCache, buildLanguageOptions, fetchEngineLanguages, isPdfRenderable, languageLabel, languagesErrorMessage } from '../src/lib/translation-languages.ts';
+import { deeplLocale, handleTranslation, handleTranslationLanguages, listEngineLanguages, translateEngine } from '../src/translation.ts';
 
 const user = { id: 'user-1' };
 const LIBRE = { TRANSLATE_PROVIDER: 'libretranslate', TRANSLATE_URL: 'http://libre.test:5000' };
@@ -129,23 +129,50 @@ test('the browser asks for the engine languages once per source, and never remem
   clearEngineLanguageCache();
   let calls = 0;
   const ok = (async () => { calls += 1; return Response.json({ languages: [{ code: 'fr', name: 'French' }, { nope: true }, { code: 'de' }] }); }) as typeof fetch;
-  assert.deepEqual(await fetchEngineLanguages('en', ok), [{ code: 'fr', name: 'French' }, { code: 'de' }]);
+  const expected = { languages: [{ code: 'fr', name: 'French' }, { code: 'de' }] };
+  assert.deepEqual(await fetchEngineLanguages('en', ok), expected);
   await fetchEngineLanguages('en', ok);
   assert.equal(calls, 1, 'a successful list is remembered');
   await fetchEngineLanguages('fr', ok);
   assert.equal(calls, 2, 'a new source asks again');
 
-  // Every kind of failure is reported as null (so the interface can say so) and is retried next time.
-  const failures: [string, typeof fetch][] = [
-    ['server error', (async () => new Response('{}', { status: 503 })) as typeof fetch],
-    ['not signed in', (async () => new Response('{}', { status: 401 })) as typeof fetch],
-    ['offline', (async () => { throw new Error('offline'); }) as typeof fetch],
-    ['not JSON', (async () => new Response('<html>', { status: 200 })) as typeof fetch],
-    ['no list', (async () => Response.json({ not: 'a list' })) as typeof fetch],
+  // Every kind of failure says why, leaves the list empty, and is retried next time.
+  const failures: [string, typeof fetch, string][] = [
+    ['key refused', (async () => Response.json({ error: 'PROVIDER_AUTH' }, { status: 502 })) as typeof fetch, 'PROVIDER_AUTH'],
+    ['engine unreachable', (async () => Response.json({ error: 'PROVIDER_UNREACHABLE' }, { status: 503 })) as typeof fetch, 'PROVIDER_UNREACHABLE'],
+    ['not signed in', (async () => Response.json({ error: 'UNAUTHORIZED' }, { status: 401 })) as typeof fetch, 'UNAUTHORIZED'],
+    ['route unknown to an old server', (async () => new Response('Not found', { status: 404 })) as typeof fetch, 'HTTP_404'],
+    ['offline', (async () => { throw new Error('offline'); }) as typeof fetch, 'NETWORK'],
+    ['no list', (async () => Response.json({ not: 'a list' })) as typeof fetch, 'BAD_RESPONSE'],
   ];
-  for (const [label, failing] of failures) {
+  for (const [label, failing, code] of failures) {
     clearEngineLanguageCache();
-    assert.equal(await fetchEngineLanguages('en', failing), null, label);
-    assert.deepEqual(await fetchEngineLanguages('en', ok), [{ code: 'fr', name: 'French' }, { code: 'de' }], `${label}: the next call tries again`);
+    assert.deepEqual(await fetchEngineLanguages('en', failing), { languages: [], error: code }, label);
+    assert.deepEqual(await fetchEngineLanguages('en', ok), expected, `${label}: the next call tries again`);
+  }
+});
+
+test('every failure code has a message that tells the user what to do', () => {
+  for (const code of ['PROVIDER_AUTH', 'PROVIDER_UNREACHABLE', 'PROVIDER_BUSY', 'UNAUTHORIZED', 'HTTP_404', 'NETWORK', 'BAD_RESPONSE', 'SOMETHING_ELSE']) {
+    assert.ok(languagesErrorMessage(code).length > 20, code);
+  }
+  assert.match(languagesErrorMessage('PROVIDER_AUTH'), /key/i);
+  assert.match(languagesErrorMessage('HTTP_404'), /restart/i);
+  assert.notEqual(languagesErrorMessage('PROVIDER_AUTH'), languagesErrorMessage('PROVIDER_UNREACHABLE'));
+});
+
+test('the engine failing is reported precisely: refused key, unreachable service, quota', async () => {
+  const answer = async (fetchImpl: typeof fetch, route: 'languages' | 'translate') => {
+    const response = route === 'languages'
+      ? await handleTranslationLanguages(request(), DEEPL, user, { fetchImpl })
+      : await handleTranslation(new Request('http://localhost/api/translate', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ items: [{ text: 'Hi', format: 'text' }], source: 'en', target: 'fr', consent: true }) }), DEEPL, user, { fetchImpl });
+    return { status: response.status, body: await response.json() };
+  };
+  for (const route of ['languages', 'translate'] as const) {
+    assert.deepEqual(await answer((async () => new Response('{"message":"Wrong key secret-key:fx"}', { status: 403 })) as typeof fetch, route), { status: 502, body: { error: 'PROVIDER_AUTH' } }, `${route}: 403`);
+    assert.deepEqual(await answer((async () => new Response('{}', { status: 401 })) as typeof fetch, route), { status: 502, body: { error: 'PROVIDER_AUTH' } }, `${route}: 401`);
+    assert.deepEqual(await answer((async () => { throw new Error('getaddrinfo ENOTFOUND api-free.deepl.com'); }) as typeof fetch, route), { status: 503, body: { error: 'PROVIDER_UNREACHABLE' } }, `${route}: unreachable`);
+    assert.deepEqual(await answer((async () => new Response('{}', { status: 456 })) as typeof fetch, route), { status: 429, body: { error: 'PROVIDER_BUSY' } }, `${route}: quota`);
+    assert.deepEqual(await answer((async () => new Response('{}', { status: 500 })) as typeof fetch, route), { status: 503, body: { error: 'TRANSLATE_UNAVAILABLE' } }, `${route}: other`);
   }
 });

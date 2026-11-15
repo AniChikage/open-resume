@@ -40,6 +40,8 @@ const ERROR_MESSAGES: Record<string, string> = {
   UNAUTHORIZED: 'Your session expired. Sign in again to save.',
   PROVIDER_BUSY: 'The translation service is busy or its quota is used up. Try again later.',
   NETWORK: 'Could not reach the server. Check your connection and try again.',
+  PROVIDER_AUTH: 'The translation service refused the key. Check TRANSLATE_API_KEY (a DeepL key ending in ":fx" is a free-plan key).',
+  PROVIDER_UNREACHABLE: 'The server could not reach the translation service. Check its address and the internet access of the server.',
 };
 
 /**
