@@ -1,4 +1,5 @@
 import { translate } from './i18n.ts';
+import { languageTag } from './language-tags.ts';
 import { toRichHtml } from './resume-content.ts';
 import { getPaperSize } from './paper.ts';
 import { BorderStyle, Document, ExternalHyperlink, HeadingLevel, ImageRun, Packer, Paragraph, TextRun, UnderlineType } from 'docx';
@@ -65,14 +66,8 @@ function itemParagraphs(item: ResumeItem, type: string, present: string) {
   return paragraphs;
 }
 
-/**
- * The language tag Word expects ("fr-FR") for an app language code ("fr"). Declaring it tells Word,
- * and the robots that read the file, which language the text is in (spell checking, parsing).
- */
-export function docxLanguageTag(lang: string): string {
-  const known: Record<string, string> = { en: 'en-US', fr: 'fr-FR', zh: 'zh-CN', 'zh-TW': 'zh-TW', ja: 'ja-JP', ko: 'ko-KR', ru: 'ru-RU' };
-  return known[lang] ?? lang;
-}
+/** The language tag Word expects ("fr-FR"); shared with the PDF export. */
+export const docxLanguageTag = languageTag;
 
 export async function buildResumeDocx({ resume, settings }: EditorDocument, lang = 'en'): Promise<Blob> {
   const paper = getPaperSize(settings.paperSize);

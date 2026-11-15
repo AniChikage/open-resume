@@ -2,6 +2,7 @@ import { getPaperSize } from './paper.ts';
 import { getPdfPageLayout } from './pdf-layout.ts';
 import { saveCanvasAsPng } from './png-export.ts';
 import { registerPdfLayoutFonts } from './pdf-fonts.ts';
+import type { PdfMetadata } from './pdf-metadata.ts';
 
 export interface PdfTarget { id: string; label: string; left: number; top: number; width: number; height: number }
 export interface PdfSnapshot {
@@ -101,7 +102,7 @@ export async function createExportSurface(source: HTMLElement) {
   }
 }
 
-export async function createPdfSnapshot(source: HTMLElement, isCurrent: () => boolean = () => true): Promise<PdfSnapshot> {
+export async function createPdfSnapshot(source: HTMLElement, isCurrent: () => boolean = () => true, metadata?: PdfMetadata): Promise<PdfSnapshot> {
   const surface = await createExportSurface(source);
   try {
     if (!isCurrent()) throw new Error('PREVIEW_CHANGED');
@@ -114,7 +115,7 @@ export async function createPdfSnapshot(source: HTMLElement, isCurrent: () => bo
       const box = node.getBoundingClientRect();
       return { id: node.dataset.previewTarget || '', label: (node.textContent || '').trim().slice(0, 80), left: box.left - rect.left, top: box.top - rect.top, width: box.width, height: box.height };
     });
-    const bytes = await buildResumePdf(surface.node);
+    const bytes = await buildResumePdf(surface.node, metadata);
     return { bytes, ...layout, targets, paper: paper.label };
   } finally { surface.destroy(); }
 }
