@@ -198,7 +198,9 @@ function ResumeHeader({ profile, template, profileHeading }: {profile:ResumeProf
 function ResumeSection({ section }: {section:ResumeSectionData}) {
   const kind = SECTION_TEMPLATES[section.type]?.kind ?? 'experience';
   return (
-    <section className={`resume-section section-${kind}`}>
+    // The whole section is a click target too (behind its heading and items, which keep priority), so a click
+    // anywhere in it, including the space between entries, jumps to its editor.
+    <section className={`resume-section section-${kind}`} data-preview-target={`section:${section.id}`}>
       <h2 data-preview-target={`section:${section.id}`}>{section.label}</h2>
       <div className="section-content">{section.items.map((item) => <ResumeItem key={item.id} kind={kind} item={item} />)}</div>
     </section>
