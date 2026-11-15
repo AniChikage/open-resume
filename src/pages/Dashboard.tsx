@@ -1,5 +1,5 @@
-import { Copy,EyeOff,FileText,Upload,LayoutTemplate,Loader2,Pencil,Plus,RotateCcw,Search,Trash2 } from 'lucide-react';
-import { useEffect,useRef,useState } from 'react';
+import { Clock,Copy,EyeOff,FileText,Upload,LayoutTemplate,Loader2,Pencil,Plus,RotateCcw,Search,Trash2 } from 'lucide-react';
+import { useEffect,useMemo,useRef,useState } from 'react';
 import { ImportResumeDialog } from '../components/ImportResumeDialog.tsx';
 import { removeDraft } from '../lib/drafts.ts';
 import { SiteFooter,SiteHeader } from '../components/SiteChrome.tsx';
@@ -18,6 +18,9 @@ import { NativeSelect,NativeSelectOption } from '../components/ui/native-select.
 import { buildBlankResume,DEFAULT_SETTINGS } from "../data.ts";
 import { useAuth } from '../lib/auth.tsx';
 import { openText } from '../lib/open-copy.ts';
+import { relativeTime,summarizeResume } from '../lib/resume-summary.ts';
+import { cn } from '../lib/utils.ts';
+import { languageName } from '../components/LanguageBar.tsx';
 import { navigate } from '../lib/router.ts';
 import { createResume,deleteResume,duplicateResume,listResumes,renameResume } from '../lib/storage.ts';
 import { renameDashboardDraft,selectDashboardResumes } from '../lib/dashboard.ts';
@@ -55,6 +58,7 @@ function writeHiddenIds(user: WorkspaceUser | null, ids: string[]) {
 
 function ResumeCard({ entry, onOpen, onHide, onDelete, onDuplicate, onRename, busy }: {entry:ResumeEntry;onOpen:()=>void;onHide:()=>void;onDelete:()=>void;onDuplicate:()=>void;onRename:()=>void;busy:boolean}) {
   const { lang, t } = useTheme();
+  const summary = useMemo(() => summarizeResume(entry.resume), [entry.resume]);
   return (
     <article className="resume-library-card group">
       <div className="resume-library-paper">
@@ -66,7 +70,17 @@ function ResumeCard({ entry, onOpen, onHide, onDelete, onDuplicate, onRename, bu
       <div className="resume-library-caption">
         <div className="min-w-0 flex-1">
           <h3><Button variant="ghost" size="sm" className="h-auto max-w-full justify-start p-0 text-sm font-semibold" disabled={busy} onClick={onRename} aria-label={t('Rename {name}', { name: entry.title || t('Untitled resume') })}><span className="truncate">{entry.title || t('Untitled resume')}</span><Pencil data-icon="inline-end" /></Button></h3>
-          <p className="mt-1 text-xs text-muted-foreground">{formatDateTime(entry.updatedAt, lang, t)}</p>
+          <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground" title={entry.updatedAt ? new Date(entry.updatedAt).toLocaleString(lang, { dateStyle: 'medium', timeStyle: 'short' }) : undefined}>
+            {entry.updatedAt ? <><Clock size={11} aria-hidden="true" />{relativeTime(entry.updatedAt, Date.now(), lang, t('Just now'))}</> : t('Not saved yet')}
+          </p>
+          {summary.hasVariants && <div className="mt-1.5 flex flex-wrap items-center gap-1 text-[10px]">
+            <span className="rounded bg-muted px-1.5 py-0.5 font-medium" title={t('Resume language: {language}', { language: languageName(summary.sourceLocale) })}>{summary.sourceLocale.toUpperCase()}</span>
+            {summary.translations.map(language => <span key={language.code} className={cn('rounded px-1.5 py-0.5 font-medium', language.missing > 0 ? 'bg-amber-100 text-amber-900' : language.stale > 0 ? 'bg-sky-100 text-sky-900' : 'bg-emerald-100 text-emerald-900')}
+              title={`${languageName(language.code)}: ${language.missing > 0 ? t('{count} texts not translated yet', { count: language.missing }) : language.stale > 0 ? t('{count} translations possibly outdated', { count: language.stale }) : t('Fully translated')}`}>
+              {language.code.toUpperCase()}{language.missing > 0 ? ` · ${language.missing}` : language.stale > 0 ? ' · ~' : ' ✓'}
+            </span>)}
+            {summary.presets > 0 && <span className="text-muted-foreground">{t('Presets: {count}', { count: summary.presets })}</span>}
+          </div>}
         </div>
         <div className="flex shrink-0 items-center gap-1">
           <Button variant="ghost" size="icon-sm" disabled={busy} onClick={onDuplicate} aria-label={t('Duplicate {name}', { name: entry.title || t('Untitled resume') })}><Copy /></Button>

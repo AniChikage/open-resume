@@ -34,6 +34,26 @@ export function sanitizeRichText(value: unknown) {
     .replace(/(<br>\s*){2,}/g, '<br>').replace(/^(<br>\s*)+|(\s*<br>)+$/g, '').trim();
 }
 
+// A stored text counts as rich text when it contains markup the editor can produce.
+// Anything else is plain text typed before the field supported formatting.
+const RICH_MARKUP = /<\/?(?:b|strong|i|em|u|a|br|p|div|span|ul|ol|li)\b[^>]*>/i;
+export const isRichHtml = (value: unknown) => RICH_MARKUP.test(String(value ?? ''));
+
+/**
+ * Rich text ready for the editor and the preview. Rich text is sanitized; plain text
+ * (possibly with line breaks) is escaped and its line breaks kept, so a text written
+ * before formatting existed displays exactly as it did.
+ */
+export function toRichHtml(value: unknown): string {
+  const raw = String(value ?? '');
+  if (!raw.trim()) return '';
+  if (isRichHtml(raw)) return sanitizeRichText(raw);
+  return raw.trim().split(/\r?\n/).map(escapeHtml).join('<br>');
+}
+
+/** The professional summary: rich text, or the plain text older resumes still hold. */
+export const getSummaryBody = (item: ResumeItemData) => toRichHtml(item.body);
+
 export function getRichTextText(value: unknown) {
   const s = sanitizeRichText(value);
   if (typeof document === 'undefined') return s.replace(/<[^>]+>/g, '');

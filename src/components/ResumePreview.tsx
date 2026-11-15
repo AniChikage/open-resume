@@ -1,5 +1,6 @@
 import { SECTION_TEMPLATES, TEMPLATE_ACCENTS, TEMPLATE_VARIANTS, resolveResumeAvatar } from '../data.ts';
 import { getPaperSize } from '../lib/paper.ts';
+import { getSummaryBody } from '../lib/resume-content.ts';
 import { useTheme } from '../lib/theme.tsx';
 import { cn } from '../lib/utils.ts';
 import type * as React from 'react';
@@ -132,6 +133,8 @@ function ResumeBackground() {
       <span className="resume-bg-grid" />
       <span className="resume-bg-side" />
       <span className="resume-bg-corner" />
+      <span className="resume-bg-planet" />
+      <span className="resume-bg-stars" />
     </div>
   );
 }
@@ -157,6 +160,15 @@ function ResumeHeader({ profile, template, profileHeading }: {profile:ResumeProf
             {profile.website && <span className="rose-info-item"><strong>{t('Website')}</strong><em>{profile.website}</em></span>}
           </div>
         </div>
+      </header>
+    );
+  }
+  if (template === 'orbit') {
+    return (
+      <header data-preview-target="profile" className="resume-header orbit-header">
+        <NameTag className="resume-name">{profile.name || t('Name')}</NameTag>
+        {profile.headline && <p className="orbit-headline">{profile.headline}</p>}
+        <p className="orbit-contact">{[profile.phone, profile.email, profile.city, profile.website].filter(Boolean).join('  ·  ')}</p>
       </header>
     );
   }
@@ -186,7 +198,9 @@ function ResumeHeader({ profile, template, profileHeading }: {profile:ResumeProf
 function ResumeSection({ section }: {section:ResumeSectionData}) {
   const kind = SECTION_TEMPLATES[section.type]?.kind ?? 'experience';
   return (
-    <section className={`resume-section section-${kind}`}>
+    // The whole section is a click target too (behind its heading and items, which keep priority), so a click
+    // anywhere in it, including the space between entries, jumps to its editor.
+    <section className={`resume-section section-${kind}`} data-preview-target={`section:${section.id}`}>
       <h2 data-preview-target={`section:${section.id}`}>{section.label}</h2>
       <div className="section-content">{section.items.map((item) => <ResumeItem key={item.id} kind={kind} item={item} />)}</div>
     </section>
@@ -195,7 +209,7 @@ function ResumeSection({ section }: {section:ResumeSectionData}) {
 
 function ResumeItem({ kind, item }: {kind:string;item:ResumeItemData}) {
   const { t } = useTheme();
-  if (kind === 'text') return <p data-preview-target={item.id} className="summary-text">{item.body}</p>;
+  if (kind === 'text') return <div data-preview-target={item.id} className="summary-text" dangerouslySetInnerHTML={{ __html: getSummaryBody(item) }} />;
   if (kind === 'education') {
     const period = getItemPeriodLabel(item, t);
     const metaParts = [item.major, item.degree, item.location].filter(Boolean);

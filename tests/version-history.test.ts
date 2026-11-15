@@ -257,9 +257,9 @@ test('version comparison detects content, section order and appearance changes w
   const current = structuredClone(historical);
   assert.equal(sameVersionValue({ label: 'Work', items: [{ body: 'Built a product', id: 'item' }] }, { items: [{ id: 'item', body: 'Built a product' }], label: 'Work' }), true);
   assert.equal(sameVersionValue(['Work', 'Education'], ['Education', 'Work']), false);
-  assert.deepEqual(compareVersionDocuments(current, historical), { profileFields: [], changedSections: [], appearanceChanged: false, titleChanged: false });
+  assert.deepEqual(compareVersionDocuments(current, historical), { profileFields: [], changedSections: [], appearanceChanged: false, variantsChanged: false, titleChanged: false });
   const withMetadata = { ...current, resume: { ...current.resume, profile: { ...current.resume.profile, importedMetadata: { source: 'external document' } } } };
-  assert.deepEqual(compareVersionDocuments(withMetadata, historical), { profileFields: [], changedSections: [], appearanceChanged: false, titleChanged: false }, 'object-valued imported metadata is ignored, just as it is by the resume renderer');
+  assert.deepEqual(compareVersionDocuments(withMetadata, historical), { profileFields: [], changedSections: [], appearanceChanged: false, variantsChanged: false, titleChanged: false }, 'object-valued imported metadata is ignored, just as it is by the resume renderer');
   current.settings = Object.fromEntries(Object.entries(current.settings).reverse()) as unknown as EditorDocument['settings'];
   current.settings.titleMode = 'custom';
   assert.equal(compareVersionDocuments(current, historical).appearanceChanged, false);

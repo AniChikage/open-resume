@@ -69,6 +69,19 @@ export function ThemeProvider({ children, initialLanguage }: PropsWithChildren<{
   );
 }
 
+/**
+ * Renders its children in another language without touching the interface language
+ * (no page language change, nothing stored). The resume preview uses it so fixed
+ * labels such as "Present" or "Phone" follow the language of the resume content.
+ */
+export function ContentLanguageProvider({ lang, children }: PropsWithChildren<{lang:string}>) {
+  const parent = useTheme();
+  const language: Language = SUPPORTED_LANGUAGES.some(({ code }) => code === lang) ? lang as Language : 'en';
+  const t = useCallback<Translate>((message, values) => translate(language, message, values), [language]);
+  const value = useMemo<ThemeState>(() => ({ ...parent, lang: language, t }), [parent, language, t]);
+  return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
+}
+
 export function useTheme() {
   const value = useContext(ThemeContext); if (!value) throw new Error('ThemeProvider is required'); return value;
 }

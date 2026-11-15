@@ -1,3 +1,6 @@
+import { translate } from './i18n.ts';
+import { languageTag } from './language-tags.ts';
+import { toRichHtml } from './resume-content.ts';
 import { getPaperSize } from './paper.ts';
 import { BorderStyle, Document, ExternalHyperlink, HeadingLevel, ImageRun, Packer, Paragraph, TextRun, UnderlineType } from 'docx';
 import type { ParagraphChild } from 'docx';
@@ -56,12 +59,15 @@ function itemParagraphs(item: ResumeItem, type: string, present: string) {
   if (title || period || item.meta) paragraphs.push(new Paragraph({ children: [new TextRun({ text: title || '', bold: true }), new TextRun({ text: [period, item.meta].filter(Boolean).map((part) => `  |  ${part}`).join('') })], keepNext: true, spacing: { before: 100, after: 60 } }));
   const meta = [item.role, item.department, item.major, item.degree, item.location].filter(Boolean).join(' · ');
   if (meta) paragraphs.push(new Paragraph({ text: meta, keepNext: true, spacing: { after: 80 } }));
-  if (item.body) paragraphs.push(...richTextParagraphs(item.body));
+  if (item.body) paragraphs.push(...richTextParagraphs(type === 'summary' ? toRichHtml(item.body) : item.body));
   else for (const text of type === 'education' ? item.details || [] : item.bullets || []) paragraphs.push(...richTextParagraphs(text));
   if (item.description) paragraphs.push(new Paragraph({ text: item.description, spacing: { after: 80 } }));
   for (const value of item.values || []) paragraphs.push(new Paragraph({ text: value, bullet: { level: 0 }, spacing: { after: 60 } }));
   return paragraphs;
 }
+
+/** The language tag Word expects ("fr-FR"); shared with the PDF export. */
+export const docxLanguageTag = languageTag;
 
 export async function buildResumeDocx({ resume, settings }: EditorDocument, lang = 'en'): Promise<Blob> {
   const paper = getPaperSize(settings.paperSize);
@@ -80,11 +86,11 @@ export async function buildResumeDocx({ resume, settings }: EditorDocument, lang
   if (contact) children.push(new Paragraph({ text: contact, spacing: { after: 180 } }));
   for (const section of resume.sections.filter((entry) => entry.visible && entry.items.length)) {
     children.push(new Paragraph({ text: section.label, heading: HeadingLevel.HEADING_1, keepNext: true, spacing: { before: 220, after: 120 }, border: { bottom: { color: accent, style: BorderStyle.SINGLE, size: 5, space: 6 } } }));
-    for (const item of section.items) children.push(...itemParagraphs(item, section.type, lang.startsWith('zh') ? '至今' : 'Present'));
+    for (const item of section.items) children.push(...itemParagraphs(item, section.type, translate(lang, 'Present')));
   }
   const document = new Document({ title: resume.title, creator: 'Resume Builder', description: 'Editable resume',
     styles: { default: {
-      document: { run: { font, size: Math.round(settings.fontSize * 2) }, paragraph: { spacing: { line: Math.round(settings.lineHeight * 240) } } },
+      document: { run: { font, size: Math.round(settings.fontSize * 2), language: { value: docxLanguageTag(lang) } }, paragraph: { spacing: { line: Math.round(settings.lineHeight * 240) } } },
       title: { run: { font, size: 40, bold: true, color: accent }, paragraph: { spacing: { after: 120 } } },
       heading1: { run: { font, size: Math.round(settings.fontSize * 2 + 2), bold: true, color: accent } },
     } },

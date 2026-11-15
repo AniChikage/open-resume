@@ -20,8 +20,11 @@
 ## Features
 
 - **156 templates, all included** — browse, filter, preview, and switch layouts without unlocking a plan.
-- **An editor that stays out of your way** — Content, Design, Check and Share workspaces, a PDF preview of the exact file you download, autosave, undo/redo, photos, section ordering, fonts, and accent colors.
+- **An editor that stays out of your way** — Content, Translation, Design, Check and Share workspaces, a PDF preview of the exact file you download, autosave, undo/redo, photos, section ordering, fonts, and accent colors.
 - **Unlimited resumes and free exports** — searchable PDF, editable Word (.docx), PNG, and JSON backups, without watermarks.
+- **One resume, tailored to each job** — name presets that hide items or whole sections, or pick another wording of an item (a short version, one that stresses other strengths), and see the result in the preview and every export.
+- **One resume, several languages** — keep translations beside the original text, in any language the translation engine offers when one is configured. Untranslated texts fall back to the original, are marked, and trigger a warning before export; translations whose source changed afterwards are flagged. Optional automatic translation with LibreTranslate or DeepL.
+- **Readable by scanning robots** — PDFs hold real text in reading order (with title, author and language properties), and the Word export uses real headings and lists, no tables or text boxes, and declares its language.
 - **Bring your existing resume** — read PDF, DOCX, TXT, Markdown or pasted text on your device, review the detected content, then create an editable copy.
 - **Back up and restore** — export the whole workspace or one resume as JSON, and restore it as new copies. Original JSON backups remain compatible.
 - **Version history** — server checkpoints, named snapshots, content and appearance comparisons, and restoration as a new copy. Existing browser snapshots remain available under Browser history; JSON keeps backups outside the app.
@@ -37,7 +40,7 @@
 
 ### Import and export
 
-Use **Content**, **Design**, **Check** and **Share** to write, style, review and download. Arrow keys move between the workspace tabs; keys 1–4 switch workspaces while you are outside a text field. On a phone, use **Preview** to see the PDF and **Back to editing** to return.
+Use **Content**, **Translation**, **Design**, **Check** and **Share** to write, translate, style, review and download. Arrow keys move between the workspace tabs; keys 1–5 switch workspaces while you are outside a text field. On a phone, use **Preview** to see the PDF and **Back to editing** to return.
 
 From **My Resumes**, choose **Import resume** for PDF, DOCX, TXT, Markdown or pasted text, **Import JSON backup** to restore workspace copies, or **Back up all** to save the workspace. In the editor, **Resume tools** opens server **Version history**, existing **Browser history** and **Job matching**; **Export** offers PDF, Word, PNG and a single-resume JSON backup.
 
@@ -98,6 +101,50 @@ Use `PORT` to change the port. The server and Compose port bind to loopback by d
 
 Share links encode the resume in the URL fragment without third-party storage. Recipients must be able to reach your deployment; uploaded avatars are not included automatically.
 
+## Presets, versions and translations
+
+- **Presets** are named selections for a target job. Create one in **Content**, then use the eye on an entry or a section to hide it in that preset. The preview and the exports follow the active preset; **Full resume** shows everything. The active preset is remembered per browser, not saved in the resume.
+- **Versions** are other wordings of one entry (for example *Short*, or one stressing your infrastructure work). Add them under **Versions** in an entry, reword only the fields that differ, and let a preset choose which one to show.
+- **Translations** live in the **Translation** tab: declare the language your resume is written in, add a language, and write each translation next to its source text. The text you edit in **Content** is always the source. Company, school and place names can be translated too but never count as missing.
+- **Exports** of a translation warn when texts are still untranslated. Languages written in Arabic or Hebrew script, Indian scripts, Thai, Georgian and Armenian cannot be drawn by the bundled PDF fonts: the PDF and PNG exports warn and offer the Word export instead.
+- Presets, versions and translations are stored inside the resume's JSON, so backups, history, sharing and restoring keep them. A share link only contains what the active preset and language show.
+
+## Configuration reference
+
+Every setting is an environment variable. Put them in a `.env` file at the project root (start from `.env.example`) and restart; `npm run dev`, `npm start` and Docker Compose all read it. None is required: the defaults give `http://localhost:3000` with the shared demo login `admin` / `admin`.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `HOST` | `127.0.0.1` | Address the server listens on. Use `0.0.0.0` for LAN access. |
+| `PORT` | `3000` | Port. |
+| `DATA_DIR` | `.data` | Where the SQLite database lives. |
+| `LOCAL_USERNAME`, `LOCAL_PASSWORD` | demo login | Private credentials. Set **both** to replace the shared demo login. |
+| `SECURE_COOKIE` | `false` | Set to `true` when serving behind HTTPS. |
+| `AI_API_KEY`, `AI_BASE_URL`, `AI_MODEL` | none (`AI_BASE_URL`: OpenRouter) | Optional AI tailoring, see below. |
+| `TRANSLATE_PROVIDER`, `TRANSLATE_URL`, `TRANSLATE_API_KEY` | none | Optional machine translation, see below. |
+
+```dotenv
+# No configuration is required. Defaults: http://localhost:3000
+HOST=127.0.0.1
+PORT=3000
+# DATA_DIR=.data
+
+# Optional private credentials: set BOTH to replace the shared demo login.
+# LOCAL_USERNAME=myname
+# LOCAL_PASSWORD=replace-with-your-own-password
+# SECURE_COOKIE=true  # Enable when serving behind HTTPS.
+
+# Optional AI tailoring. Your provider charges your own account.
+# AI_API_KEY=
+# AI_BASE_URL=https://openrouter.ai/api/v1
+# AI_MODEL=your-provider-model-id
+
+# Optional machine translation: libretranslate (self-hosted) or deepl.
+# TRANSLATE_PROVIDER=libretranslate
+# TRANSLATE_URL=http://localhost:5000
+# TRANSLATE_API_KEY=
+```
+
 ## Optional AI tailoring
 
 Editing, saving, and exporting work without AI. To enable tailoring, configure a Chat Completions-compatible provider in `.env` and restart:
@@ -112,6 +159,23 @@ Choose a model that supports `response_format: json_object`. Keep the key server
 
 Tailoring sends resume text and the job description only after you agree. Contact fields, photos, and hidden sections are excluded; remove any private details inside the body yourself. Review suggestions before saving a separate copy. The original resume stays intact; job descriptions and unaccepted suggestions are not stored in the database.
 
+## Optional machine translation
+
+A resume can be kept in several languages (see the language bar in the editor). Translations are written by hand by default. To also offer automatic translation, pick one engine in `.env` and restart; nothing is sent anywhere until you do:
+
+```dotenv
+# Self-hosted, nothing leaves your network (https://github.com/LibreTranslate/LibreTranslate)
+TRANSLATE_PROVIDER=libretranslate
+TRANSLATE_URL=http://localhost:5000
+# TRANSLATE_API_KEY=only-if-your-server-requires-one
+
+# Or DeepL (a key ending in ":fx" uses the free API endpoint)
+# TRANSLATE_PROVIDER=deepl
+# TRANSLATE_API_KEY=your-deepl-key
+```
+
+The key stays on the server. A "Translate missing texts" button then appears in the translation panel. Only texts that have no translation yet are sent, rich text is sent as HTML so formatting survives, and every automatic translation stays flagged "please review" until you edit it or mark it reviewed. With DeepL the resume text is sent to DeepL; with LibreTranslate it goes to the server you configured.
+
 ## Development
 
 ```sh
@@ -121,7 +185,7 @@ npm test             # Isolated HTTP, persistence, and document tests
 npm run build        # Type checking and production frontend
 ```
 
-Node.js 24 runs the server's `.ts` files directly; Vite builds the browser code. Shared types are in `src/types.ts`; external JSON validation is in `src/lib/validation.ts`. GitHub Actions and Docker builds run the tests and type checks. AI tests use a synthetic provider and do not consume paid credits.
+`npm run dev` hot-reloads the browser code only: after changing the server (`server/`, `src/translation.ts`, any `/api` route), stop it and start it again. The production image copies an explicit list of server files, so a new server file must be added to the `Dockerfile` (`npm test` checks this). Node.js 24 runs the server's `.ts` files directly; Vite builds the browser code. Shared types are in `src/types.ts`; external JSON validation is in `src/lib/validation.ts`. GitHub Actions and Docker builds run the tests and type checks. AI tests use a synthetic provider and do not consume paid credits.
 
 See the [verification record](docs/verification.md) and [Docker acceptance](docs/docker-acceptance.md) for tested behavior and current boundaries. Bug reports, documentation improvements, and focused pull requests are welcome in [Issues](https://github.com/AniChikage/open-resume/issues).
 

@@ -353,6 +353,18 @@ function createTemplate({
 
 const CORE_TEMPLATE_LIBRARY = [
   createTemplate({
+    id: 'orbit',
+    zh: '轨道航天',
+    en: 'Orbit',
+    accent: '#ff7a3d',
+    variant: 'orbit',
+    tags: ['热门', '航天', '工程', '创业公司', '技术', '紧凑', '一页'],
+    descriptionZh: '深蓝页眉加轨道装饰，适合航天与工程类岗位，紧凑单页。',
+    descriptionEn: 'Navy header with an orbit motif for space and engineering roles. Compact, one page.',
+    language: '中英双语',
+    usage: 150000
+  }),
+  createTemplate({
     id: 'purple',
     zh: '商务紫线',
     en: 'Purple Pro',

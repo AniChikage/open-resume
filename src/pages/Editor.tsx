@@ -2,7 +2,7 @@ import { ResumePreview } from '../components/ResumePreview.tsx';
 import {
 BadgeCheck,Bold,BriefcaseBusiness,Calendar,CheckCircle2,ChevronDown,ChevronLeft,ChevronRight,
 CircleAlert,
-Download,Eraser,Eye,FileJson,FileText,Gauge,GraduationCap,History,Home,Wrench,
+Download,Eraser,Eye,EyeOff,FileJson,FileText,Gauge,GraduationCap,History,Home,Wrench,
 ImageDown,Italic,Layers3,LayoutTemplate,Link2,
 List,ListOrdered,
 Loader2,
@@ -38,11 +38,29 @@ import { CHINA_MAJOR_OPTIONS,CHINA_SCHOOL_OPTIONS } from '../lib/education-optio
 import { navigate } from '../lib/router.ts';
 import { generateShareUrl } from '../lib/share.ts';
 import { getResume,saveResume } from '../lib/storage.ts';
-import { useTheme } from '../lib/theme.tsx';
+import { ContentLanguageProvider,useTheme } from '../lib/theme.tsx';
 import { useEditorHistory } from '../lib/use-editor-history.ts';
 import { cn } from '../lib/utils.ts';
 import { errorMessage,isEditorDocument } from '../lib/validation.ts';
-import type { EditorDocument,Resume,ResumeItem as ResumeItemData,ResumeProfile,ResumeSection as ResumeSectionData,ResumeSettings,SectionType,Setter,Translate } from '../types.ts';
+import type { EditorDocument,ItemText,Resume,ResumeItem as ResumeItemData,ResumeProfile,ResumeSection as ResumeSectionData,ResumeSettings,SectionType,Setter,Translate } from '../types.ts';
+import { ItemPresetBadge,ItemVersionsEditor } from '../components/ItemVariants.tsx';
+import type { FieldInputProps } from '../components/ItemVariants.tsx';
+import { PresetBar } from '../components/PresetBar.tsx';
+import { useActivePreset } from '../lib/use-active-preset.ts';
+import { useVariants,VariantsProvider } from '../lib/variants-context.ts';
+import type { VariantsApi } from '../lib/variants-context.ts';
+import { addItemVersion,createPreset,deleteItemVersion,deletePreset,duplicatePreset,findPreset,pruneVariants,renameItemVersion,renamePreset,setItemChoice,setSectionHidden,setVersionField } from '../lib/variants-edit.ts';
+import { getSummaryBody,toRichHtml } from '../lib/resume-content.ts';
+import { DEFAULT_SOURCE_LOCALE,resolveResume } from '../lib/variants.ts';
+import { languageName } from '../components/LanguageBar.tsx';
+import { TranslationNotice,TranslationTab } from '../components/TranslationTab.tsx';
+import { Dialog,DialogContent,DialogDescription,DialogFooter,DialogHeader,DialogTitle } from '../components/ui/dialog.tsx';
+import { exportWarnings } from '../lib/export-warnings.ts';
+import { useActiveLocale } from '../lib/use-active-locale.ts';
+import { addTranslationLocale,markTranslationCurrent,markTranslationReviewed,removeTranslationLocale,setItemSame,setItemTranslation,setProfileTranslation,setSectionLabelTranslation,setSourceLocale } from '../lib/translation-edit.ts';
+import { buildTranslationRows,isItemMarkedSame } from '../lib/translation-rows.ts';
+import type { TranslationRow } from '../lib/translation-rows.ts';
+import { linesToRichHtml,toStoredValue } from '../lib/version-fields.ts';
 
 import { EditorModes, ResumeCheckPanel, ResumeSharePanel } from '../components/EditorWorkspace.tsx';
 import { workspaceText } from '../lib/editor-workspace-copy.ts';
@@ -340,18 +358,37 @@ export default function Editor({ resumeId }: {resumeId:string}) {
   const exportMenuRef = useRef<HTMLDivElement | null>(null);
   const previousLangRef = useRef<string | null>(null);
   const [previewOnly, setPreviewOnly] = useState(false);
-  const pdfKey = usePdfDocumentKey(resume, settings, lang);
-  const pdfPreview = usePdfPreview(paperRef, pdfKey);
+  const [storedPresetId, selectPreset] = useActivePreset(resumeId);
+  // The preset only exists while the stored resume still has it (undo or deletion can remove it).
+  const presetId = resume && findPreset(resume, storedPresetId) ? storedPresetId : null;
+  const [storedLocale, selectLocale] = useActiveLocale(resumeId);
+  const sourceLocale = resume?.variants?.sourceLocale ?? DEFAULT_SOURCE_LOCALE;
+  const translatedLocales = Object.keys(resume?.variants?.translations ?? {}).filter((locale) => locale !== sourceLocale);
+  // The language shown: null means the source language (also when the remembered language was removed).
+  const localeId = storedLocale && translatedLocales.includes(storedLocale) ? storedLocale : null;
+  // What is shown and exported: the resume with the active preset and language applied. The editor itself keeps working on `resume`.
+  const resolved = useMemo(() => resume ? resolveResume(resume, { presetId: presetId ?? undefined, locale: localeId ?? undefined }) : null, [resume, presetId, localeId]);
+  const renderedResume = resolved?.resume ?? null;
+  // Fixed labels ("Present", "Phone"...) follow the content language once one is declared; older resumes keep following the interface language.
+  const contentLang = resume?.variants ? (localeId ?? sourceLocale) : lang;
+  const translationRows = useMemo(() => resume && localeId ? buildTranslationRows(resume, localeId) : [], [resume, localeId]);
+  const [pendingExport, setPendingExport] = useState<{ type: string; count: number; noFont: boolean } | null>(null);
+  const pdfKey = usePdfDocumentKey(renderedResume, settings, lang);
+  // The PDF's properties: the title viewers show, the author, and the language of the text.
+  const pdfMetadata = renderedResume ? { title: renderedResume.title || renderedResume.profile.name, author: renderedResume.profile.name, language: contentLang } : undefined;
+  const pdfPreview = usePdfPreview(paperRef, pdfKey, pdfMetadata);
   const latestDocumentKey = useRef(pdfKey);
   latestDocumentKey.current = pdfKey;
   const selectView = (view: string) => { setActiveView(view); setPreviewOnly(false); };
+  // Entering the Translation tab while the source language is shown opens the first translation, if there is one.
+  useEffect(() => { if (activeView === 'translate' && !localeId && translatedLocales.length > 0) selectLocale(translatedLocales[0]); }, [activeView]);
   useEffect(() => { setShareUrl(''); }, [pdfKey]);
   useEffect(() => {
     const switchMode = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement;
       if (event.altKey || event.ctrlKey || event.metaKey || event.repeat || target?.closest('input, textarea, select, [contenteditable="true"], [role="dialog"]')) return;
-      const view = ['edit', 'template', 'check', 'share'][Number(event.key) - 1];
-      if (!view || !/^[1-4]$/.test(event.key)) return;
+      const view = ['edit', 'translate', 'template', 'check', 'share'][Number(event.key) - 1];
+      if (!view || !/^[1-5]$/.test(event.key)) return;
       event.preventDefault(); setActiveView(view); setPreviewOnly(false);
       document.getElementById(`editor-tab-${view}`)?.focus();
     };
@@ -484,7 +521,7 @@ export default function Editor({ resumeId }: {resumeId:string}) {
   }, [deleteNotice]);
 
   useLayoutEffect(() => {
-    if (!locationRequest || activeView !== 'edit') return;
+    if (!locationRequest || (activeView !== 'edit' && activeView !== 'translate')) return;
     const node = [...(editorRoot.current?.querySelectorAll<HTMLElement>('[data-editor-target]') || [])]
       .find((element) => element.dataset.editorTarget === locationRequest.id);
     if (!node) return;
@@ -505,7 +542,8 @@ export default function Editor({ resumeId }: {resumeId:string}) {
 
   const locateFromPreview = (id: string, field?: string) => {
     setActiveItemId(id);
-    setActiveView('edit');
+    // From the Translation tab a click in the preview jumps to the matching translation, not to the source text.
+    setActiveView((view) => view === 'translate' ? view : 'edit');
     setPreviewOnly(false);
     setLocationRequest({ id, field });
   };
@@ -526,7 +564,7 @@ export default function Editor({ resumeId }: {resumeId:string}) {
   if (!resume) return (
     <div className="flex h-screen flex-col bg-background">
       <div className="flex h-14 items-center justify-between border-b border-border bg-card px-4"><Skeleton className="h-8 w-56" /><Skeleton className="h-8 w-40" /></div>
-      <div className="grid min-h-0 flex-1 lg:grid-cols-[64px_480px_minmax(0,1fr)]">
+      <div className="grid min-h-0 flex-1 lg:grid-cols-[64px_clamp(400px,30vw,640px)_minmax(0,1fr)]">
         <Skeleton className="hidden h-full rounded-none lg:block" />
         <div className="flex flex-col gap-4 border-r border-border p-4"><Skeleton className="h-24" /><Skeleton className="h-48" /><Skeleton className="h-72" /></div>
         <div className="grid place-items-center bg-muted/45 p-8"><Skeleton className="aspect-[210/297] h-[min(74vh,760px)]" /></div>
@@ -540,16 +578,68 @@ export default function Editor({ resumeId }: {resumeId:string}) {
   const updateItem = (sectionId: string, itemId: string, patch: Partial<ResumeItemData>) => updateResume((d) => { const s = d.sections.find((x) => x.id === sectionId); const item = s?.items.find((x) => x.id === itemId); if (item) Object.assign(item, patch); }, `item:${itemId}:${Object.keys(patch).sort().join()}`);
   const addSection = (type: SectionType = 'custom') => { const ns = { id: uid(), type, label: getSectionCopy(type, lang).label, visible: true, items: [createSectionItem(type, lang)] }; updateResume((d) => { d.sections.push(ns); }); setActiveItemId(ns.items[0].id); return ns.items[0].id; };
   const addItem = (section: ResumeSectionData) => { const item = createSectionItem(section.type, lang); updateResume((d) => { d.sections.find((x) => x.id === section.id)?.items.push(item); }); setActiveItemId(item.id); return item.id; };
-  const deleteSection = (id: string) => { updateResume((d) => { d.sections = d.sections.filter((x) => x.id !== id); }); setDeleteNotice(history.getSnapshot().present); };
-  const deleteItem = (sId: string, iId: string) => { updateResume((d) => { const s = d.sections.find((x) => x.id === sId); if (s) s.items = s.items.filter((x) => x.id !== iId); }); setDeleteNotice(history.getSnapshot().present); };
+  const deleteSection = (id: string) => { updateResume((d) => { d.sections = d.sections.filter((x) => x.id !== id); pruneVariants(d); }); setDeleteNotice(history.getSnapshot().present); };
+  const deleteItem = (sId: string, iId: string) => { updateResume((d) => { const s = d.sections.find((x) => x.id === sId); if (s) s.items = s.items.filter((x) => x.id !== iId); pruneVariants(d); }); setDeleteNotice(history.getSnapshot().present); };
   const moveSection = (id: string, dir: number) => updateResume((d) => { const i = d.sections.findIndex((x) => x.id === id); const t = i + dir; if (i < 0 || t < 0 || t >= d.sections.length) return; const [s] = d.sections.splice(i, 1); d.sections.splice(t, 0, s); });
   const handleAvatar = (file: File | undefined) => { if (!file) return; const r = new FileReader(); r.onload = () => updateProfile('avatar', String(r.result || '')); r.readAsDataURL(file); };
 
-  const handleExport = async (type: string) => {
+  // Everything the preset and version controls may do, expressed as resume edits (undoable like any other).
+  const variantsApi: VariantsApi = {
+    presets: resume.variants?.presets ?? [],
+    presetId,
+    selectPreset,
+    createPreset: (name) => { const id = uid(); updateResume((d) => { createPreset(d, name, id); }); selectPreset(id); },
+    renameActivePreset: (name) => { if (presetId) updateResume((d) => renamePreset(d, presetId, name)); },
+    duplicateActivePreset: (name) => { if (!presetId) return; const id = uid(); updateResume((d) => { duplicatePreset(d, presetId, name, id); }); selectPreset(id); },
+    deleteActivePreset: () => { if (!presetId) return; updateResume((d) => deletePreset(d, presetId)); selectPreset(null); },
+    choiceFor: (itemId) => presetId ? findPreset(resume, presetId)?.items[itemId] : undefined,
+    setChoice: (itemId, choice) => { if (presetId) updateResume((d) => setItemChoice(d, presetId, itemId, choice)); },
+    isSectionHidden: (sectionId) => Boolean(presetId && findPreset(resume, presetId)?.sections?.[sectionId]?.hidden),
+    setSectionHidden: (sectionId, hidden) => { if (presetId) updateResume((d) => setSectionHidden(d, presetId, sectionId, hidden)); },
+    addVersion: (itemId, name) => updateResume((d) => { addItemVersion(d, itemId, name, uid()); }),
+    renameVersion: (itemId, versionId, name) => updateResume((d) => renameItemVersion(d, itemId, versionId, name)),
+    deleteVersion: (itemId, versionId) => updateResume((d) => deleteItemVersion(d, itemId, versionId)),
+    setVersionField: (itemId, versionId, field, value) => updateResume((d) => setVersionField(d, itemId, versionId, field, value as never), `version:${versionId}:${field}`),
+
+    sourceLocale,
+    translatedLocales,
+    localeId,
+    selectLocale,
+    setSourceLocale: (locale) => updateResume((d) => setSourceLocale(d, locale)),
+    addLocale: (locale) => { updateResume((d) => addTranslationLocale(d, locale)); selectLocale(locale); },
+    removeLocale: (locale) => { updateResume((d) => removeTranslationLocale(d, locale)); selectLocale(null); },
+    rows: translationRows,
+    missingCount: translationRows.filter((row) => row.missing).length,
+    itemLabel: (itemId) => { for (const s of resume.sections) { const found = s.items.find((x) => x.id === itemId); if (found) return getItemTitle(s, found, t); } return ''; },
+    versionName: (itemId, versionId) => { for (const s of resume.sections) { const found = s.items.find((x) => x.id === itemId); if (found) return found.versions?.find((v) => v.id === versionId)?.name ?? ''; } return ''; },
+    setRowTranslation: (row, value) => {
+      if (!localeId) return;
+      updateResume((d) => writeTranslationRow(d, localeId, row, value, false), `translate:${localeId}:${row.key}`);
+    },
+    applyMachineTranslations: (entries) => {
+      if (!localeId) return;
+      updateResume((d) => {
+        // Rows are looked up again: a text typed (or a source edited) while the request ran must not be overwritten.
+        const live = new Map(buildTranslationRows(d, localeId).map((row) => [row.key, row]));
+        for (const { row, value } of entries) {
+          const current = live.get(row.key);
+          if (current && !current.translated.trim() && current.source === row.source) writeTranslationRow(d, localeId, row, value, true);
+        }
+      }, `translate:${localeId}:automatic`);
+    },
+    markRowReviewed: (row) => { if (localeId) updateResume((d) => markTranslationReviewed(d, localeId, row)); },
+    markRowCurrent: (row) => { if (localeId) updateResume((d) => markTranslationCurrent(d, localeId, row, row.source)); },
+    staleCount: translationRows.filter((row) => row.stale).length,
+    isItemSame: (itemId) => Boolean(localeId && isItemMarkedSame(resume, localeId, itemId)),
+    setItemSame: (itemId, same) => { if (localeId) updateResume((d) => setItemSame(d, localeId, itemId, same)); },
+  };
+
+  const runExport = async (type: string) => {
     if (!paperRef.current || isExporting) return;
     setExportFeedback(null);
     setIsExporting(type); setExportOpen(false);
-    const base = resume.title || resume.profile.name || 'resume';
+    const presetName = presetId ? findPreset(resume, presetId)?.name : undefined;
+    const base = [resume.title || resume.profile.name || 'resume', presetName?.replace(/[\\/:*?"<>|]+/g, '-'), localeId].filter(Boolean).join(' - ');
     try {
       if (type === 'pdf' || type === 'png') {
         const snapshot = await pdfPreview.getSnapshot();
@@ -557,7 +647,7 @@ export default function Editor({ resumeId }: {resumeId:string}) {
         else await downloadPdfSnapshotAsPng(snapshot, `${base}.png`);
       } else if (type === 'docx') {
         const { exportResumeAsDocx } = await import('../lib/docx-export.ts');
-        await exportResumeAsDocx({ resume, settings }, `${base}.docx`, lang);
+        await exportResumeAsDocx({ resume: renderedResume ?? resume, settings }, `${base}.docx`, contentLang);
       } else if (type === 'json') {
         const { exportResumeAsJson } = await import('../exporters.ts');
         exportResumeAsJson(resume, settings, `${base}.json`);
@@ -577,10 +667,16 @@ export default function Editor({ resumeId }: {resumeId:string}) {
       });
     } finally { setIsExporting(''); }
   };
+  // Exporting asks first when texts are untranslated, or when the PDF fonts cannot draw the language (the JSON backup never does).
+  const handleExport = (type: string) => {
+    const warnings = exportWarnings(type, localeId, sourceLocale, resolved?.missing.length ?? 0);
+    if (warnings.untranslated > 0 || warnings.noFont) setPendingExport({ type, count: warnings.untranslated, noFont: warnings.noFont });
+    else void runExport(type);
+  };
 
   const handleShare = async () => {
     const key = pdfKey;
-    const url = await generateShareUrl(resume, settings);
+    const url = await generateShareUrl(renderedResume ?? resume, settings);
     if (key !== latestDocumentKey.current) throw new Error('PREVIEW_CHANGED');
     setShareUrl(url);
     try { await navigator.clipboard.writeText(url); return true; } catch { return false; }
@@ -588,6 +684,7 @@ export default function Editor({ resumeId }: {resumeId:string}) {
   const handleCheck = () => selectView('check');
   const openTailor = (jobDescription = '') => { setTailorJobDescription(jobDescription); setTailorSnapshot({ resume: clone(resume), settings: clone(settings) }); };
   return (
+    <VariantsProvider value={variantsApi}>
     <div ref={editorRoot} className="editor-root flex h-screen flex-col overflow-hidden bg-background">
       {deleteNotice === history.getSnapshot().present && canUndo && <div role="status" className="fixed bottom-5 left-1/2 z-40 flex -translate-x-1/2 items-center gap-3 rounded-lg border border-border bg-card p-3 shadow-lg">
         <span className="text-sm">{t('Deleted')}</span><Button variant="outline" size="sm" onClick={() => { history.undo(); setDeleteNotice(null); }}>{t('Undo')}</Button>
@@ -643,26 +740,42 @@ export default function Editor({ resumeId }: {resumeId:string}) {
           </button>
         </div>
       )}
-      <main className="grid min-h-0 min-w-0 flex-1 grid-cols-1 overflow-hidden lg:grid-cols-[400px_minmax(0,1fr)]">
+      <main className="grid min-h-0 min-w-0 flex-1 grid-cols-1 overflow-hidden lg:grid-cols-[clamp(400px,30vw,640px)_minmax(0,1fr)]">
         <div id="editor-workspace-panel" role="tabpanel" aria-labelledby={`editor-tab-${activeView}`} className={cn('editor-workspace light-panel min-h-0 min-w-0 border-r border-border bg-card', previewOnly ? 'hidden lg:block' : 'block')}>
-          {activeView === 'template' ? <TemplateStylePanel resume={resume} settings={settings} onSettings={setSettings} />
+          {activeView === 'translate' ? <TranslationTab FieldInput={VersionFieldInput} />
+            : activeView === 'template' ? <TemplateStylePanel resume={resume} settings={settings} onSettings={setSettings} />
             : activeView === 'check' ? <ResumeCheckPanel resume={resume} onLocate={locateFromPreview} onAddSection={type => { const section = resume.sections.find(value => value.type === type); if (section) { updateSection(section.id, { visible: true }); locateFromPreview(section.items[0]?.id || addItem(section)); } else locateFromPreview(addSection(type)); }} />
             : activeView === 'share' ? <ResumeSharePanel key={pdfKey} url={shareUrl} onShare={handleShare} onExport={handleExport} isExporting={isExporting} />
-            : <EditorPanel resume={resume} activeItemId={activeItemId} onProfile={updateProfile} onAvatar={handleAvatar} onSection={updateSection} onItem={updateItem} onAddItem={section => locateFromPreview(addItem(section))} onAddSection={type => locateFromPreview(addSection(type))} onDeleteSection={deleteSection} onDeleteItem={deleteItem} onMoveSection={moveSection} onActiveItem={setActiveItemId} onCheck={handleCheck} />}
+            : <EditorPanel resume={resume} activeItemId={activeItemId} onProfile={updateProfile} onAvatar={handleAvatar} onSection={updateSection} onItem={updateItem} onAddItem={section => locateFromPreview(addItem(section))} onAddSection={type => locateFromPreview(addSection(type))} onDeleteSection={deleteSection} onDeleteItem={deleteItem} onMoveSection={moveSection} onActiveItem={setActiveItemId} onCheck={handleCheck} onOpenTranslation={() => selectView('translate')} />}
         </div>
-        <div className="resume-pagination-measure" aria-hidden="true"><ResumePreview resume={resume} settings={settings} refNode={paperRef} /></div>
+        <div className="resume-pagination-measure" aria-hidden="true"><ContentLanguageProvider lang={contentLang}><ResumePreview resume={renderedResume ?? resume} settings={settings} refNode={paperRef} /></ContentLanguageProvider></div>
         <Suspense fallback={<div className={cn('min-h-0 items-center justify-center bg-muted/55', previewOnly ? 'flex' : 'hidden lg:flex')}><Loader2 className="animate-spin" /></div>}>
           <PdfResumePreview snapshot={pdfPreview.snapshot} pending={pdfPreview.pending} error={pdfPreview.error} onRetry={pdfPreview.retry} activeItemId={activeItemId} onLocate={locateFromPreview} className={previewOnly ? 'flex' : 'hidden lg:flex'} />
         </Suspense>
       </main>
+      <Dialog open={pendingExport !== null} onOpenChange={(open) => { if (!open) setPendingExport(null); }}>
+        <DialogContent showCloseButton={false}>
+          <DialogHeader>
+            <DialogTitle>{pendingExport?.noFont ? t('The PDF cannot draw this alphabet') : t('This resume is not fully translated')}</DialogTitle>
+            {pendingExport?.noFont && <DialogDescription>{t('The fonts used for the PDF and PNG exports do not include the alphabet of {language}: its text may appear as empty boxes, and right-to-left writing is not supported. The Word export is not affected.', { language: languageName(localeId ?? sourceLocale) })}</DialogDescription>}
+            {(pendingExport?.count ?? 0) > 0 && <DialogDescription>{t('You are about to export a resume that is not fully translated: {count} texts are still in {language}.', { count: pendingExport?.count ?? 0, language: languageName(sourceLocale) })}</DialogDescription>}
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPendingExport(null)}>{t('Cancel')}</Button>
+            {pendingExport?.noFont && <Button variant="outline" onClick={() => { setPendingExport(null); void runExport('docx'); }}>{t('Export as Word instead')}</Button>}
+            <Button onClick={() => { const type = pendingExport?.type; setPendingExport(null); if (type) void runExport(type); }}>{t('Continue')}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       {managerOpen && <ModuleManager resume={resume} onClose={() => setManagerOpen(false)} onAddSection={addSection} onSection={updateSection} onMoveSection={moveSection} onDeleteSection={deleteSection} />}
       <ResumeHistory resumeId={resumeId} document={history.getSnapshot().present as EditorDocument} onRestore={document => history.commit(document)} open={browserHistoryOpen} onOpenChange={setBrowserHistoryOpen} showTrigger={false} />
       <Suspense fallback={<Skeleton className="fixed right-4 top-20 h-20 w-64" />}>
         {versionsOpen && <VersionHistoryDialog resumeId={resumeId} document={history.getSnapshot().present as EditorDocument} onClose={() => setVersionsOpen(false)} beforeRestore={() => autosave.flush()} onRestored={id => navigate(`/editor/${id}`)} />}
-        {jobMatchOpen && <JobMatchPanel resumeId={resumeId} resume={resume} onClose={() => setJobMatchOpen(false)} onLocate={id => { setJobMatchOpen(false); locateFromPreview(id); }} onTailor={job => { setJobMatchOpen(false); openTailor(job?.jobDescription); }} />}
+        {jobMatchOpen && <JobMatchPanel resumeId={resumeId} resume={renderedResume ?? resume}onClose={() => setJobMatchOpen(false)} onLocate={id => { setJobMatchOpen(false); locateFromPreview(id); }} onTailor={job => { setJobMatchOpen(false); openTailor(job?.jobDescription); }} />}
       </Suspense>
       {tailorSnapshot && <TailorResumeDialog key={resumeId} snapshot={tailorSnapshot} currentResume={resume} initialJobDescription={tailorJobDescription} onClose={() => setTailorSnapshot(null)} />}
     </div>
+    </VariantsProvider>
   );
 }
 
@@ -748,20 +861,25 @@ function FontPicker({ value, onChange, className, selectClassName, ariaLabel = '
   );
 }
 
-function EditorPanel({ resume, activeItemId, onProfile, onAvatar, onSection, onItem, onAddItem, onAddSection, onDeleteSection, onDeleteItem, onMoveSection, onActiveItem, onCheck }: {resume:Resume;activeItemId?:string | null;onProfile:(field:keyof ResumeProfile,value:string) => void;onAvatar:(file:File | undefined) => void;onSection:(id:string,patch:Partial<ResumeSectionData>) => void;onItem:(sectionId:string,itemId:string,patch:Partial<ResumeItemData>) => void;onAddItem:(section:ResumeSectionData) => void;onAddSection:(type?:SectionType) => void;onDeleteSection:(id:string) => void;onDeleteItem:(sectionId:string,itemId:string) => void;onMoveSection:(id:string,direction:number) => void;onActiveItem:(id:string) => void;onCheck:() => void}) {
+function EditorPanel({ resume, activeItemId, onProfile, onAvatar, onSection, onItem, onAddItem, onAddSection, onDeleteSection, onDeleteItem, onMoveSection, onActiveItem, onCheck, onOpenTranslation }: {resume:Resume;activeItemId?:string | null;onProfile:(field:keyof ResumeProfile,value:string) => void;onAvatar:(file:File | undefined) => void;onSection:(id:string,patch:Partial<ResumeSectionData>) => void;onItem:(sectionId:string,itemId:string,patch:Partial<ResumeItemData>) => void;onAddItem:(section:ResumeSectionData) => void;onAddSection:(type?:SectionType) => void;onDeleteSection:(id:string) => void;onDeleteItem:(sectionId:string,itemId:string) => void;onMoveSection:(id:string,direction:number) => void;onActiveItem:(id:string) => void;onCheck:() => void;onOpenTranslation:() => void}) {
   const { lang, t } = useTheme();
   const stats = getResumeStats(resume);
+  const variants = useVariants();
   return (
     <section className="editor-content-panel" aria-label={t('Resume editor')}>
       <div className="editor-content-heading"><h2>{workspaceText(lang, 'content')}</h2><p>{visualText(lang, 'contentHelp')}</p></div>
-      <EditorOverview stats={stats} onCheck={onCheck} />
-      <div data-editor-target="profile" onFocusCapture={() => onActiveItem("profile")}><ProfileEditor profile={resume.profile} onProfile={onProfile} onAvatar={onAvatar} /></div>
-      {resume.sections.map((section, index) => (
-        <SectionEditor key={section.id} section={section} index={index} total={resume.sections.length}
-          activeItemId={activeItemId} onSection={onSection} onItem={onItem} onAddItem={onAddItem}
-          onDeleteSection={onDeleteSection} onDeleteItem={onDeleteItem} onMoveSection={onMoveSection} onActiveItem={onActiveItem} />
-      ))}
-      <QuickSections resume={resume} onAddSection={onAddSection} />
+      <PresetBar />
+      <TranslationNotice onOpen={onOpenTranslation} />
+      <>
+        <EditorOverview stats={stats} onCheck={onCheck} />
+        <div data-editor-target="profile" onFocusCapture={() => onActiveItem("profile")}><ProfileEditor profile={resume.profile} onProfile={onProfile} onAvatar={onAvatar} /></div>
+        {resume.sections.map((section, index) => (
+          <SectionEditor key={section.id} section={section} index={index} total={resume.sections.length}
+            activeItemId={activeItemId} onSection={onSection} onItem={onItem} onAddItem={onAddItem}
+            onDeleteSection={onDeleteSection} onDeleteItem={onDeleteItem} onMoveSection={onMoveSection} onActiveItem={onActiveItem} />
+        ))}
+        <QuickSections resume={resume} onAddSection={onAddSection} />
+      </>
     </section>
   );
 }
@@ -887,14 +1005,17 @@ function SectionEditor({ section, index, total, activeItemId, onSection, onItem,
   const { lang, t } = useTheme();
   const tpl = SECTION_TEMPLATES[section.type] ?? SECTION_TEMPLATES.custom;
   const Icon = iconMap[tpl.icon] ?? PlusCircle;
-  return <section data-editor-target={'section:' + section.id} className={cn('editor-section', !section.visible && 'opacity-60')}>
+  const variants = useVariants();
+  const hiddenByPreset = variants?.isSectionHidden(section.id) ?? false;
+  const versionControls = (item: ResumeItemData) => <ItemVersionsEditor section={section} item={item} FieldInput={VersionFieldInput} defaultText={field => itemDefaultText(tpl.kind, item, field)} />;
+  return <section data-editor-target={'section:' + section.id} className={cn('editor-section', (!section.visible || hiddenByPreset) && 'opacity-60')}>
     <details ref={node => { if (node && !node.dataset.inited) { node.open = section.type === 'summary'; node.dataset.inited = '1'; } }}>
-      <summary><Icon /><span>{section.label}</span><span className="editor-section-count">{section.items.length}</span><ChevronDown className="section-chevron" /></summary>
+      <summary><Icon /><span>{section.label}</span>{hiddenByPreset && <EyeOff size={13} aria-label={t('Hidden in this preset')} />}<span className="editor-section-count">{section.items.length}</span><ChevronDown className="section-chevron" /></summary>
       <div className="editor-section-body">
         {section.items.length === 0 && <p className="py-2 text-xs text-muted-foreground">{getSectionCopy(section.type, lang).empty}</p>}
-        {tpl.kind === 'text' && section.items.length === 1 ? <div data-editor-target={section.items[0].id} onFocusCapture={() => onActiveItem(section.items[0].id)}><EntryForm hideTitle section={section} item={section.items[0]} onItem={patch => onItem(section.id, section.items[0].id, patch)} /></div> : section.items.map((item, index) => <details key={item.id} data-editor-target={item.id} onFocusCapture={() => onActiveItem(item.id)} className="editor-entry" ref={node => { if (node && !node.dataset.inited) { node.open = index === 0; node.dataset.inited = '1'; } }} onClick={() => onActiveItem(item.id)}>
-          <summary className="flex cursor-pointer items-center gap-2 px-2 py-2 hover:bg-muted/50"><span className="min-w-0 flex-1 truncate">{getItemTitle(section, item, t)}</span><small className="max-w-24 truncate text-xs text-muted-foreground">{getItemMeta(section, item, t)}</small><span role="button" aria-label={t('Delete entry')} tabIndex={0} className="p-1 text-muted-foreground hover:text-destructive" onClick={event => { event.preventDefault(); event.stopPropagation(); onDeleteItem(section.id, item.id); }} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); event.stopPropagation(); onDeleteItem(section.id, item.id); } }}><Trash2 size={13} /></span></summary>
-          <div className="pb-3 pt-1"><EntryForm section={section} item={item} onItem={patch => onItem(section.id, item.id, patch)} /></div>
+        {tpl.kind === 'text' && section.items.length === 1 ? <div data-editor-target={section.items[0].id} onFocusCapture={() => onActiveItem(section.items[0].id)}><EntryForm hideTitle section={section} item={section.items[0]} onItem={patch => onItem(section.id, section.items[0].id, patch)} />{versionControls(section.items[0])}</div> : section.items.map((item, index) => <details key={item.id} data-editor-target={item.id} onFocusCapture={() => onActiveItem(item.id)} className={cn('editor-entry', variants?.choiceFor(item.id)?.hidden && 'opacity-60')} ref={node => { if (node && !node.dataset.inited) { node.open = index === 0; node.dataset.inited = '1'; } }} onClick={() => onActiveItem(item.id)}>
+          <summary className="flex cursor-pointer items-center gap-2 px-2 py-2 hover:bg-muted/50"><span className="min-w-0 flex-1 truncate">{getItemTitle(section, item, t)}</span><small className="max-w-24 truncate text-xs text-muted-foreground">{getItemMeta(section, item, t)}</small><ItemPresetBadge item={item} /><span role="button" aria-label={t('Delete entry')} tabIndex={0} className="p-1 text-muted-foreground hover:text-destructive" onClick={event => { event.preventDefault(); event.stopPropagation(); onDeleteItem(section.id, item.id); }} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); event.stopPropagation(); onDeleteItem(section.id, item.id); } }}><Trash2 size={13} /></span></summary>
+          <div className="pb-3 pt-1"><EntryForm section={section} item={item} onItem={patch => onItem(section.id, item.id, patch)} />{versionControls(item)}</div>
         </details>)}
         {tpl.kind !== 'text' && <Button variant="ghost" size="sm" className="justify-start" onClick={() => onAddItem(section)}><Plus data-icon="inline-start" />{t('Add another {section}', { section: section.label })}</Button>}
         <details className="editor-section-options"><summary>{visualText(lang, 'sectionOptions')}</summary><div className="editor-section-management">
@@ -902,6 +1023,7 @@ function SectionEditor({ section, index, total, activeItemId, onSection, onItem,
           <button type="button" title={t('Move section up')} onClick={() => onMoveSection(section.id, -1)} disabled={index === 0}><MoveUp size={13} /></button>
           <button type="button" title={t('Move section down')} onClick={() => onMoveSection(section.id, 1)} disabled={index === total - 1}><MoveDown size={13} /></button>
           <button type="button" title={section.visible ? t('Hide section') : t('Show section')} onClick={() => onSection(section.id, { visible: !section.visible })}><Eye size={13} /></button>
+          {variants?.presetId && <button type="button" aria-pressed={hiddenByPreset} title={hiddenByPreset ? t('Show section in this preset') : t('Hide section in this preset')} onClick={() => variants.setSectionHidden(section.id, !hiddenByPreset)}><EyeOff size={13} /></button>}
           <button type="button" title={t('Delete section')} className="text-muted-foreground hover:text-destructive" onClick={() => onDeleteSection(section.id)}><Trash2 size={13} /></button>
         </div>{tpl.kind === 'text' && section.items.length === 1 && <Field label={t('Title')} value={section.items[0].title} onChange={value => onItem(section.id, section.items[0].id, { title: value })} />}
           {tpl.kind === 'text' && <Button variant="ghost" size="sm" className="justify-start" onClick={() => onAddItem(section)}><Plus data-icon="inline-start" />{t('Add another {section}', { section: section.label })}</Button>}
@@ -909,6 +1031,23 @@ function SectionEditor({ section, index, total, activeItemId, onSection, onItem,
       </div>
     </details>
   </section>;
+}
+
+// The item's current text for a field: what a version starts from when the user chooses to reword that field.
+function itemDefaultText(kind: string, item: ResumeItemData, field: keyof ItemText): string {
+  if (field === 'body') return kind === 'education' ? getEducationBody(item) : kind === 'experience' ? getExperienceBody(item) : item.body ?? '';
+  const value = item[field];
+  return Array.isArray(value) ? value.join('\n') : value ?? '';
+}
+
+// Lets a version be edited with the same inputs as the item itself.
+function VersionFieldInput({ input, label, value, onChange }: FieldInputProps) {
+  // Stored texts may predate formatting (plain, with line breaks): show them as they always looked.
+  if (input === 'rich') return <RichTextEditor label={label} value={toRichHtml(value)} onChange={onChange} />;
+  // A list whose lines hold formatting is shown and edited as one rich text.
+  if (input === 'richlines') return <RichTextEditor label={label} value={toRichHtml(linesToRichHtml(value))} onChange={onChange} />;
+  if (input === 'line') return <Field label={label} value={value} onChange={onChange} />;
+  return <TextArea label={label} value={value} onChange={onChange} />;
 }
 
 function EntryForm({ section, item, onItem, hideTitle = false }: {section:ResumeSectionData;item:ResumeItemData;onItem:(patch:Partial<ResumeItemData>) => void;hideTitle?:boolean}) {
@@ -920,7 +1059,7 @@ function EntryForm({ section, item, onItem, hideTitle = false }: {section:Resume
   const degreeOptions = DEGREE_OPTIONS[lang] || (chineseLocale ? DEGREE_OPTIONS.zh : DEGREE_OPTIONS.en);
   if (kind === 'text') return (
     <div className="flex flex-col gap-2">
-      <TextArea label={t('Body')} value={item.body} onChange={(v) => onItem({ body: v })} />
+      <RichTextEditor label={t('Body')} value={getSummaryBody(item)} onChange={(v) => onItem({ body: v })} />
       {!hideTitle && <details className="editor-section-options"><summary>{t('Title')}</summary><Field label={t('Title')} value={item.title} onChange={(v) => onItem({ title: v })} /></details>}
     </div>
   );
@@ -1331,6 +1470,13 @@ function ModuleManager({ resume, onClose, onAddSection, onSection, onMoveSection
       </aside>
     </div>
   );
+}
+
+// Writes the translation typed (or machine-produced) for one row, remembering which source text it answers.
+function writeTranslationRow(d: Resume, locale: string, row: TranslationRow, value: string, machine: boolean) {
+  if (row.scope === 'profile') setProfileTranslation(d, locale, row.field as 'headline' | 'city' | 'status', value, row.source, machine);
+  else if (row.scope === 'section') setSectionLabelTranslation(d, locale, row.sectionId!, value, row.source, machine);
+  else setItemTranslation(d, locale, row.itemId!, row.versionId ?? null, row.field as never, toStoredValue(row.input, value) as never, row.source, machine);
 }
 
 function getItemTitle(section: ResumeSectionData, item: ResumeItemData, t: Translate) {

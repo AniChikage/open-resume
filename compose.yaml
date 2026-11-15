@@ -10,6 +10,9 @@ services:
       AI_BASE_URL: ${AI_BASE_URL:-https://openrouter.ai/api/v1}
       AI_MODEL: ${AI_MODEL:-}
       SECURE_COOKIE: ${SECURE_COOKIE:-false}
+      TRANSLATE_PROVIDER: ${TRANSLATE_PROVIDER:-}
+      TRANSLATE_URL: ${TRANSLATE_URL:-}
+      TRANSLATE_API_KEY: ${TRANSLATE_API_KEY:-}
     volumes:
       - resumes:/data
     restart: unless-stopped
