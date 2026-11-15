@@ -53,7 +53,7 @@ import { addItemVersion,createPreset,deleteItemVersion,deletePreset,duplicatePre
 import { getSummaryBody,toRichHtml } from '../lib/resume-content.ts';
 import { DEFAULT_SOURCE_LOCALE,resolveResume } from '../lib/variants.ts';
 import { LanguageBar,languageName } from '../components/LanguageBar.tsx';
-import { TranslationPanel } from '../components/TranslationPanel.tsx';
+import { TranslationNotice,TranslationTab } from '../components/TranslationTab.tsx';
 import { Dialog,DialogContent,DialogDescription,DialogFooter,DialogHeader,DialogTitle } from '../components/ui/dialog.tsx';
 import { useActiveLocale } from '../lib/use-active-locale.ts';
 import { addTranslationLocale,markTranslationCurrent,markTranslationReviewed,removeTranslationLocale,setItemSame,setItemTranslation,setProfileTranslation,setSectionLabelTranslation,setSourceLocale } from '../lib/translation-edit.ts';
@@ -377,13 +377,15 @@ export default function Editor({ resumeId }: {resumeId:string}) {
   const latestDocumentKey = useRef(pdfKey);
   latestDocumentKey.current = pdfKey;
   const selectView = (view: string) => { setActiveView(view); setPreviewOnly(false); };
+  // Entering the Translation tab while the source language is shown opens the first translation, if there is one.
+  useEffect(() => { if (activeView === 'translate' && !localeId && translatedLocales.length > 0) selectLocale(translatedLocales[0]); }, [activeView]);
   useEffect(() => { setShareUrl(''); }, [pdfKey]);
   useEffect(() => {
     const switchMode = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement;
       if (event.altKey || event.ctrlKey || event.metaKey || event.repeat || target?.closest('input, textarea, select, [contenteditable="true"], [role="dialog"]')) return;
-      const view = ['edit', 'template', 'check', 'share'][Number(event.key) - 1];
-      if (!view || !/^[1-4]$/.test(event.key)) return;
+      const view = ['edit', 'translate', 'template', 'check', 'share'][Number(event.key) - 1];
+      if (!view || !/^[1-5]$/.test(event.key)) return;
       event.preventDefault(); setActiveView(view); setPreviewOnly(false);
       document.getElementById(`editor-tab-${view}`)?.focus();
     };
@@ -516,7 +518,7 @@ export default function Editor({ resumeId }: {resumeId:string}) {
   }, [deleteNotice]);
 
   useLayoutEffect(() => {
-    if (!locationRequest || activeView !== 'edit') return;
+    if (!locationRequest || (activeView !== 'edit' && activeView !== 'translate')) return;
     const node = [...(editorRoot.current?.querySelectorAll<HTMLElement>('[data-editor-target]') || [])]
       .find((element) => element.dataset.editorTarget === locationRequest.id);
     if (!node) return;
@@ -537,7 +539,8 @@ export default function Editor({ resumeId }: {resumeId:string}) {
 
   const locateFromPreview = (id: string, field?: string) => {
     setActiveItemId(id);
-    setActiveView('edit');
+    // From the Translation tab a click in the preview jumps to the matching translation, not to the source text.
+    setActiveView((view) => view === 'translate' ? view : 'edit');
     setPreviewOnly(false);
     setLocationRequest({ id, field });
   };
@@ -736,10 +739,11 @@ export default function Editor({ resumeId }: {resumeId:string}) {
       )}
       <main className="grid min-h-0 min-w-0 flex-1 grid-cols-1 overflow-hidden lg:grid-cols-[clamp(400px,30vw,640px)_minmax(0,1fr)]">
         <div id="editor-workspace-panel" role="tabpanel" aria-labelledby={`editor-tab-${activeView}`} className={cn('editor-workspace light-panel min-h-0 min-w-0 border-r border-border bg-card', previewOnly ? 'hidden lg:block' : 'block')}>
-          {activeView === 'template' ? <TemplateStylePanel resume={resume} settings={settings} onSettings={setSettings} />
+          {activeView === 'translate' ? <TranslationTab FieldInput={VersionFieldInput} />
+            : activeView === 'template' ? <TemplateStylePanel resume={resume} settings={settings} onSettings={setSettings} />
             : activeView === 'check' ? <ResumeCheckPanel resume={resume} onLocate={locateFromPreview} onAddSection={type => { const section = resume.sections.find(value => value.type === type); if (section) { updateSection(section.id, { visible: true }); locateFromPreview(section.items[0]?.id || addItem(section)); } else locateFromPreview(addSection(type)); }} />
             : activeView === 'share' ? <ResumeSharePanel key={pdfKey} url={shareUrl} onShare={handleShare} onExport={handleExport} isExporting={isExporting} />
-            : <EditorPanel resume={resume} activeItemId={activeItemId} onProfile={updateProfile} onAvatar={handleAvatar} onSection={updateSection} onItem={updateItem} onAddItem={section => locateFromPreview(addItem(section))} onAddSection={type => locateFromPreview(addSection(type))} onDeleteSection={deleteSection} onDeleteItem={deleteItem} onMoveSection={moveSection} onActiveItem={setActiveItemId} onCheck={handleCheck} />}
+            : <EditorPanel resume={resume} activeItemId={activeItemId} onProfile={updateProfile} onAvatar={handleAvatar} onSection={updateSection} onItem={updateItem} onAddItem={section => locateFromPreview(addItem(section))} onAddSection={type => locateFromPreview(addSection(type))} onDeleteSection={deleteSection} onDeleteItem={deleteItem} onMoveSection={moveSection} onActiveItem={setActiveItemId} onCheck={handleCheck} onOpenTranslation={() => selectView('translate')} />}
         </div>
         <div className="resume-pagination-measure" aria-hidden="true"><ContentLanguageProvider lang={contentLang}><ResumePreview resume={renderedResume ?? resume} settings={settings} refNode={paperRef} /></ContentLanguageProvider></div>
         <Suspense fallback={<div className={cn('min-h-0 items-center justify-center bg-muted/55', previewOnly ? 'flex' : 'hidden lg:flex')}><Loader2 className="animate-spin" /></div>}>
@@ -852,7 +856,7 @@ function FontPicker({ value, onChange, className, selectClassName, ariaLabel = '
   );
 }
 
-function EditorPanel({ resume, activeItemId, onProfile, onAvatar, onSection, onItem, onAddItem, onAddSection, onDeleteSection, onDeleteItem, onMoveSection, onActiveItem, onCheck }: {resume:Resume;activeItemId?:string | null;onProfile:(field:keyof ResumeProfile,value:string) => void;onAvatar:(file:File | undefined) => void;onSection:(id:string,patch:Partial<ResumeSectionData>) => void;onItem:(sectionId:string,itemId:string,patch:Partial<ResumeItemData>) => void;onAddItem:(section:ResumeSectionData) => void;onAddSection:(type?:SectionType) => void;onDeleteSection:(id:string) => void;onDeleteItem:(sectionId:string,itemId:string) => void;onMoveSection:(id:string,direction:number) => void;onActiveItem:(id:string) => void;onCheck:() => void}) {
+function EditorPanel({ resume, activeItemId, onProfile, onAvatar, onSection, onItem, onAddItem, onAddSection, onDeleteSection, onDeleteItem, onMoveSection, onActiveItem, onCheck, onOpenTranslation }: {resume:Resume;activeItemId?:string | null;onProfile:(field:keyof ResumeProfile,value:string) => void;onAvatar:(file:File | undefined) => void;onSection:(id:string,patch:Partial<ResumeSectionData>) => void;onItem:(sectionId:string,itemId:string,patch:Partial<ResumeItemData>) => void;onAddItem:(section:ResumeSectionData) => void;onAddSection:(type?:SectionType) => void;onDeleteSection:(id:string) => void;onDeleteItem:(sectionId:string,itemId:string) => void;onMoveSection:(id:string,direction:number) => void;onActiveItem:(id:string) => void;onCheck:() => void;onOpenTranslation:() => void}) {
   const { lang, t } = useTheme();
   const stats = getResumeStats(resume);
   const variants = useVariants();
@@ -861,7 +865,8 @@ function EditorPanel({ resume, activeItemId, onProfile, onAvatar, onSection, onI
       <div className="editor-content-heading"><h2>{workspaceText(lang, 'content')}</h2><p>{visualText(lang, 'contentHelp')}</p></div>
       <PresetBar />
       <LanguageBar />
-      {variants?.localeId ? <TranslationPanel FieldInput={VersionFieldInput} /> : <>
+      <TranslationNotice onOpen={onOpenTranslation} />
+      <>
         <EditorOverview stats={stats} onCheck={onCheck} />
         <div data-editor-target="profile" onFocusCapture={() => onActiveItem("profile")}><ProfileEditor profile={resume.profile} onProfile={onProfile} onAvatar={onAvatar} /></div>
         {resume.sections.map((section, index) => (
@@ -870,7 +875,7 @@ function EditorPanel({ resume, activeItemId, onProfile, onAvatar, onSection, onI
             onDeleteSection={onDeleteSection} onDeleteItem={onDeleteItem} onMoveSection={onMoveSection} onActiveItem={onActiveItem} />
         ))}
         <QuickSections resume={resume} onAddSection={onAddSection} />
-      </>}
+      </>
     </section>
   );
 }

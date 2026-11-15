@@ -115,7 +115,7 @@ test('content checks point to profile fields, visible entries, and missing secti
 
 test('workspace labels and feedback are localized for all seven supported languages', () => {
   for (const lang of ['zh', 'zh-TW', 'ja', 'ko', 'fr', 'ru']) {
-    for (const key of ['content', 'checkHelp', 'pdfHelp', 'preparing', 'linkHelp'] as const) assert.notEqual(workspaceText(lang, key), workspaceText('en', key));
+    for (const key of ['content', 'translation', 'checkHelp', 'pdfHelp', 'preparing', 'linkHelp'] as const) assert.notEqual(workspaceText(lang, key), workspaceText('en', key));
     assert.ok(!workspaceText(lang, 'pages', { count: 3 }).includes('{count}'));
   }
 });

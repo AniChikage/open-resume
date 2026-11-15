@@ -1,4 +1,4 @@
-import { CheckCircle2, ClipboardCheck, Download, Eye, FileJson, FileText, ImageDown, LayoutTemplate, Link2, Loader2, PencilLine, Share2, Sparkles } from 'lucide-react';
+import { CheckCircle2, ClipboardCheck, Download, Eye, FileJson, FileText, ImageDown, Languages, LayoutTemplate, Link2, Loader2, PencilLine, Share2, Sparkles } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { runChecks } from '../lib/ai-check.ts';
 import { workspaceText } from '../lib/editor-workspace-copy.ts';
@@ -9,6 +9,7 @@ import { Button } from './ui/button.tsx';
 
 const modes = [
   { id: 'edit', label: 'content', icon: PencilLine },
+  { id: 'translate', label: 'translation', icon: Languages },
   { id: 'template', label: 'design', icon: LayoutTemplate },
   { id: 'check', label: 'check', icon: ClipboardCheck },
   { id: 'share', label: 'share', icon: Share2 },

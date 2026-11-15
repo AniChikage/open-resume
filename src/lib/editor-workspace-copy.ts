@@ -2,6 +2,7 @@ import type { Language } from '../types.ts';
 
 const copy = {
   content: ['Content', '内容', '內容', '内容', '내용', 'Contenu', 'Содержание'],
+  translation: ['Translation', '翻译', '翻譯', '翻訳', '번역', 'Traduction', 'Перевод'],
   design: ['Design', '设计', '設計', 'デザイン', '디자인', 'Design', 'Дизайн'],
   check: ['Check', '检查', '檢查', 'チェック', '검사', 'Vérifier', 'Проверка'],
   share: ['Share', '分享', '分享', '共有', '공유', 'Partager', 'Поделиться'],

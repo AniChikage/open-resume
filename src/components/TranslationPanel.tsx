@@ -91,7 +91,7 @@ export function TranslationPanel({ FieldInput }: { FieldInput: ComponentType<Fie
       {status?.message && <p className={cn('text-xs leading-5', status.error ? 'text-destructive' : 'text-muted-foreground')} role={status.error ? 'alert' : 'status'}>{status.message}</p>}
     </div>}
     {groups.length === 0 && <p className="text-xs text-muted-foreground">{t('There is nothing to translate yet.')}</p>}
-    {groups.map(group => <div key={group.key} className="flex flex-col gap-2 rounded-lg border border-border p-3">
+    {groups.map(group => <div key={group.key} data-editor-target={group.itemId ?? (group.key === 'profile' ? 'profile' : group.key)} className="flex flex-col gap-2 rounded-lg border border-border p-3">
       <div className="flex items-center gap-2">
         <h4 className="min-w-0 flex-1 truncate text-xs font-semibold">{group.title}</h4>
         {group.itemId && <label className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
