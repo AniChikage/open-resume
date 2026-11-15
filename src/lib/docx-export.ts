@@ -65,6 +65,15 @@ function itemParagraphs(item: ResumeItem, type: string, present: string) {
   return paragraphs;
 }
 
+/**
+ * The language tag Word expects ("fr-FR") for an app language code ("fr"). Declaring it tells Word,
+ * and the robots that read the file, which language the text is in (spell checking, parsing).
+ */
+export function docxLanguageTag(lang: string): string {
+  const known: Record<string, string> = { en: 'en-US', fr: 'fr-FR', zh: 'zh-CN', 'zh-TW': 'zh-TW', ja: 'ja-JP', ko: 'ko-KR', ru: 'ru-RU' };
+  return known[lang] ?? lang;
+}
+
 export async function buildResumeDocx({ resume, settings }: EditorDocument, lang = 'en'): Promise<Blob> {
   const paper = getPaperSize(settings.paperSize);
   const accent = /^#[\da-f]{6}$/i.test(settings.accent) ? settings.accent.slice(1) : '333333';
@@ -86,7 +95,7 @@ export async function buildResumeDocx({ resume, settings }: EditorDocument, lang
   }
   const document = new Document({ title: resume.title, creator: 'Resume Builder', description: 'Editable resume',
     styles: { default: {
-      document: { run: { font, size: Math.round(settings.fontSize * 2) }, paragraph: { spacing: { line: Math.round(settings.lineHeight * 240) } } },
+      document: { run: { font, size: Math.round(settings.fontSize * 2), language: { value: docxLanguageTag(lang) } }, paragraph: { spacing: { line: Math.round(settings.lineHeight * 240) } } },
       title: { run: { font, size: 40, bold: true, color: accent }, paragraph: { spacing: { after: 120 } } },
       heading1: { run: { font, size: Math.round(settings.fontSize * 2 + 2), bold: true, color: accent } },
     } },
