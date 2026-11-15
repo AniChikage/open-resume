@@ -55,6 +55,7 @@ import { DEFAULT_SOURCE_LOCALE,resolveResume } from '../lib/variants.ts';
 import { LanguageBar,languageName } from '../components/LanguageBar.tsx';
 import { TranslationNotice,TranslationTab } from '../components/TranslationTab.tsx';
 import { Dialog,DialogContent,DialogDescription,DialogFooter,DialogHeader,DialogTitle } from '../components/ui/dialog.tsx';
+import { exportWarnings } from '../lib/export-warnings.ts';
 import { useActiveLocale } from '../lib/use-active-locale.ts';
 import { addTranslationLocale,markTranslationCurrent,markTranslationReviewed,removeTranslationLocale,setItemSame,setItemTranslation,setProfileTranslation,setSectionLabelTranslation,setSourceLocale } from '../lib/translation-edit.ts';
 import { buildTranslationRows,isItemMarkedSame } from '../lib/translation-rows.ts';
@@ -371,7 +372,7 @@ export default function Editor({ resumeId }: {resumeId:string}) {
   // Fixed labels ("Present", "Phone"...) follow the content language once one is declared; older resumes keep following the interface language.
   const contentLang = resume?.variants ? (localeId ?? sourceLocale) : lang;
   const translationRows = useMemo(() => resume && localeId ? buildTranslationRows(resume, localeId) : [], [resume, localeId]);
-  const [pendingExport, setPendingExport] = useState<{ type: string; count: number } | null>(null);
+  const [pendingExport, setPendingExport] = useState<{ type: string; count: number; noFont: boolean } | null>(null);
   const pdfKey = usePdfDocumentKey(renderedResume, settings, lang);
   const pdfPreview = usePdfPreview(paperRef, pdfKey);
   const latestDocumentKey = useRef(pdfKey);
@@ -664,10 +665,10 @@ export default function Editor({ resumeId }: {resumeId:string}) {
       });
     } finally { setIsExporting(''); }
   };
-  // Exporting a translation that still has untranslated texts asks first (the JSON backup is the full resume, so it never does).
+  // Exporting asks first when texts are untranslated, or when the PDF fonts cannot draw the language (the JSON backup never does).
   const handleExport = (type: string) => {
-    const untranslated = localeId && type !== 'json' ? resolved?.missing.length ?? 0 : 0;
-    if (untranslated > 0) setPendingExport({ type, count: untranslated });
+    const warnings = exportWarnings(type, localeId, sourceLocale, resolved?.missing.length ?? 0);
+    if (warnings.untranslated > 0 || warnings.noFont) setPendingExport({ type, count: warnings.untranslated, noFont: warnings.noFont });
     else void runExport(type);
   };
 
@@ -753,11 +754,13 @@ export default function Editor({ resumeId }: {resumeId:string}) {
       <Dialog open={pendingExport !== null} onOpenChange={(open) => { if (!open) setPendingExport(null); }}>
         <DialogContent showCloseButton={false}>
           <DialogHeader>
-            <DialogTitle>{t('This resume is not fully translated')}</DialogTitle>
-            <DialogDescription>{t('You are about to export a resume that is not fully translated: {count} texts are still in {language}.', { count: pendingExport?.count ?? 0, language: languageName(sourceLocale) })}</DialogDescription>
+            <DialogTitle>{pendingExport?.noFont ? t('The PDF cannot draw this alphabet') : t('This resume is not fully translated')}</DialogTitle>
+            {pendingExport?.noFont && <DialogDescription>{t('The fonts used for the PDF and PNG exports do not include the alphabet of {language}: its text may appear as empty boxes, and right-to-left writing is not supported. The Word export is not affected.', { language: languageName(localeId ?? sourceLocale) })}</DialogDescription>}
+            {(pendingExport?.count ?? 0) > 0 && <DialogDescription>{t('You are about to export a resume that is not fully translated: {count} texts are still in {language}.', { count: pendingExport?.count ?? 0, language: languageName(sourceLocale) })}</DialogDescription>}
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setPendingExport(null)}>{t('Cancel')}</Button>
+            {pendingExport?.noFont && <Button variant="outline" onClick={() => { setPendingExport(null); void runExport('docx'); }}>{t('Export as Word instead')}</Button>}
             <Button onClick={() => { const type = pendingExport?.type; setPendingExport(null); if (type) void runExport(type); }}>{t('Continue')}</Button>
           </DialogFooter>
         </DialogContent>
