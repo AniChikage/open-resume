@@ -557,7 +557,7 @@ export default function Editor({ resumeId }: {resumeId:string}) {
   if (!resume) return (
     <div className="flex h-screen flex-col bg-background">
       <div className="flex h-14 items-center justify-between border-b border-border bg-card px-4"><Skeleton className="h-8 w-56" /><Skeleton className="h-8 w-40" /></div>
-      <div className="grid min-h-0 flex-1 lg:grid-cols-[64px_480px_minmax(0,1fr)]">
+      <div className="grid min-h-0 flex-1 lg:grid-cols-[64px_clamp(400px,30vw,640px)_minmax(0,1fr)]">
         <Skeleton className="hidden h-full rounded-none lg:block" />
         <div className="flex flex-col gap-4 border-r border-border p-4"><Skeleton className="h-24" /><Skeleton className="h-48" /><Skeleton className="h-72" /></div>
         <div className="grid place-items-center bg-muted/45 p-8"><Skeleton className="aspect-[210/297] h-[min(74vh,760px)]" /></div>
@@ -733,7 +733,7 @@ export default function Editor({ resumeId }: {resumeId:string}) {
           </button>
         </div>
       )}
-      <main className="grid min-h-0 min-w-0 flex-1 grid-cols-1 overflow-hidden lg:grid-cols-[400px_minmax(0,1fr)]">
+      <main className="grid min-h-0 min-w-0 flex-1 grid-cols-1 overflow-hidden lg:grid-cols-[clamp(400px,30vw,640px)_minmax(0,1fr)]">
         <div id="editor-workspace-panel" role="tabpanel" aria-labelledby={`editor-tab-${activeView}`} className={cn('editor-workspace light-panel min-h-0 min-w-0 border-r border-border bg-card', previewOnly ? 'hidden lg:block' : 'block')}>
           {activeView === 'template' ? <TemplateStylePanel resume={resume} settings={settings} onSettings={setSettings} />
             : activeView === 'check' ? <ResumeCheckPanel resume={resume} onLocate={locateFromPreview} onAddSection={type => { const section = resume.sections.find(value => value.type === type); if (section) { updateSection(section.id, { visible: true }); locateFromPreview(section.items[0]?.id || addItem(section)); } else locateFromPreview(addSection(type)); }} />
