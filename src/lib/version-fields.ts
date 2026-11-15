@@ -8,7 +8,7 @@ export interface VersionFieldSpec { field: keyof ItemText; label: string; input:
 // Fields a version can reword, by section kind. Labels reuse the editor's own wording.
 // Dates and other language-neutral fields are deliberately absent.
 const VERSION_FIELDS: Record<string, VersionFieldSpec[]> = {
-  text: [{ field: 'body', label: 'Body', input: 'text' }],
+  text: [{ field: 'body', label: 'Body', input: 'rich' }],
   education: [
     { field: 'major', label: 'Field of study', input: 'line' },
     { field: 'degree', label: 'Degree', input: 'line' },

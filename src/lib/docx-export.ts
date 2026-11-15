@@ -1,4 +1,5 @@
 import { translate } from './i18n.ts';
+import { toRichHtml } from './resume-content.ts';
 import { getPaperSize } from './paper.ts';
 import { BorderStyle, Document, ExternalHyperlink, HeadingLevel, ImageRun, Packer, Paragraph, TextRun, UnderlineType } from 'docx';
 import type { ParagraphChild } from 'docx';
@@ -57,7 +58,7 @@ function itemParagraphs(item: ResumeItem, type: string, present: string) {
   if (title || period || item.meta) paragraphs.push(new Paragraph({ children: [new TextRun({ text: title || '', bold: true }), new TextRun({ text: [period, item.meta].filter(Boolean).map((part) => `  |  ${part}`).join('') })], keepNext: true, spacing: { before: 100, after: 60 } }));
   const meta = [item.role, item.department, item.major, item.degree, item.location].filter(Boolean).join(' · ');
   if (meta) paragraphs.push(new Paragraph({ text: meta, keepNext: true, spacing: { after: 80 } }));
-  if (item.body) paragraphs.push(...richTextParagraphs(item.body));
+  if (item.body) paragraphs.push(...richTextParagraphs(type === 'summary' ? toRichHtml(item.body) : item.body));
   else for (const text of type === 'education' ? item.details || [] : item.bullets || []) paragraphs.push(...richTextParagraphs(text));
   if (item.description) paragraphs.push(new Paragraph({ text: item.description, spacing: { after: 80 } }));
   for (const value of item.values || []) paragraphs.push(new Paragraph({ text: value, bullet: { level: 0 }, spacing: { after: 60 } }));

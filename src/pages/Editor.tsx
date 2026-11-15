@@ -50,6 +50,7 @@ import { useActivePreset } from '../lib/use-active-preset.ts';
 import { useVariants,VariantsProvider } from '../lib/variants-context.ts';
 import type { VariantsApi } from '../lib/variants-context.ts';
 import { addItemVersion,createPreset,deleteItemVersion,deletePreset,duplicatePreset,findPreset,pruneVariants,renameItemVersion,renamePreset,setItemChoice,setSectionHidden,setVersionField } from '../lib/variants-edit.ts';
+import { getSummaryBody,toRichHtml } from '../lib/resume-content.ts';
 import { DEFAULT_SOURCE_LOCALE,resolveResume } from '../lib/variants.ts';
 import { LanguageBar,languageName } from '../components/LanguageBar.tsx';
 import { TranslationPanel } from '../components/TranslationPanel.tsx';
@@ -1032,7 +1033,8 @@ function itemDefaultText(kind: string, item: ResumeItemData, field: keyof ItemTe
 
 // Lets a version be edited with the same inputs as the item itself.
 function VersionFieldInput({ input, label, value, onChange }: FieldInputProps) {
-  if (input === 'rich') return <RichTextEditor label={label} value={value} onChange={onChange} />;
+  // Stored texts may predate formatting (plain, with line breaks): show them as they always looked.
+  if (input === 'rich') return <RichTextEditor label={label} value={toRichHtml(value)} onChange={onChange} />;
   if (input === 'line') return <Field label={label} value={value} onChange={onChange} />;
   return <TextArea label={label} value={value} onChange={onChange} />;
 }
@@ -1046,7 +1048,7 @@ function EntryForm({ section, item, onItem, hideTitle = false }: {section:Resume
   const degreeOptions = DEGREE_OPTIONS[lang] || (chineseLocale ? DEGREE_OPTIONS.zh : DEGREE_OPTIONS.en);
   if (kind === 'text') return (
     <div className="flex flex-col gap-2">
-      <TextArea label={t('Body')} value={item.body} onChange={(v) => onItem({ body: v })} />
+      <RichTextEditor label={t('Body')} value={getSummaryBody(item)} onChange={(v) => onItem({ body: v })} />
       {!hideTitle && <details className="editor-section-options"><summary>{t('Title')}</summary><Field label={t('Title')} value={item.title} onChange={(v) => onItem({ title: v })} /></details>}
     </div>
   );

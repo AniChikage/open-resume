@@ -1,5 +1,6 @@
 import { SECTION_TEMPLATES, TEMPLATE_ACCENTS, TEMPLATE_VARIANTS, resolveResumeAvatar } from '../data.ts';
 import { getPaperSize } from '../lib/paper.ts';
+import { getSummaryBody } from '../lib/resume-content.ts';
 import { useTheme } from '../lib/theme.tsx';
 import { cn } from '../lib/utils.ts';
 import type * as React from 'react';
@@ -206,7 +207,7 @@ function ResumeSection({ section }: {section:ResumeSectionData}) {
 
 function ResumeItem({ kind, item }: {kind:string;item:ResumeItemData}) {
   const { t } = useTheme();
-  if (kind === 'text') return <p data-preview-target={item.id} className="summary-text">{item.body}</p>;
+  if (kind === 'text') return <div data-preview-target={item.id} className="summary-text" dangerouslySetInnerHTML={{ __html: getSummaryBody(item) }} />;
   if (kind === 'education') {
     const period = getItemPeriodLabel(item, t);
     const metaParts = [item.major, item.degree, item.location].filter(Boolean);
