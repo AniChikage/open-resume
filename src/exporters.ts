@@ -226,7 +226,6 @@ class DomVectorPdfRenderer {
       await this.drawElementBackgrounds();
       this.drawElementBorders();
       await this.drawImages();
-      this.drawListMarkers();
       this.drawTextNodes();
     }
   }
@@ -326,10 +325,16 @@ class DomVectorPdfRenderer {
     }
   }
 
-  drawListMarkers() {
+  /**
+   * The bullet of each list item, keyed by the item's first text node. Drawing it right before that text
+   * (instead of every bullet of the page first) keeps the file's reading order natural: a robot that reads the
+   * text in file order meets "• text", not a block of bullets before the name.
+   */
+  listMarkersByFirstText(): Map<Node, (() => void)[]> {
+    const markers = new Map<Node, (() => void)[]>();
     Array.from(this.node.querySelectorAll('li')).forEach((li) => {
-      const textRect = getFirstTextRect(li);
-      if (!textRect || !this.containsTextLine(textRect)) return;
+      const first = getFirstText(li);
+      if (!first || !this.containsTextLine(first.rect)) return;
       const marker = getListMarker(li);
       if (!marker) return;
       const style = li.ownerDocument.defaultView!.getComputedStyle(li);
@@ -337,17 +342,21 @@ class DomVectorPdfRenderer {
       const fontSize = parseFloat(style.fontSize || '13') * this.scale;
       const markerWidth = this.font.widthOfTextAtSize(marker, fontSize);
       const markerGap = 5 * this.scale;
-      const x = (textRect.left - this.rootRect.left) * this.scale - markerWidth - markerGap;
-      const yTop = (textRect.top - this.rootRect.top - this.pageTop + this.pageInset) * this.scale;
-      this.drawPdfText(marker, x, yTop, fontSize, color, { maxWidth: markerWidth + markerGap });
+      const x = (first.rect.left - this.rootRect.left) * this.scale - markerWidth - markerGap;
+      const yTop = (first.rect.top - this.rootRect.top - this.pageTop + this.pageInset) * this.scale;
+      const draw = () => this.drawPdfText(marker, x, yTop, fontSize, color, { maxWidth: markerWidth + markerGap });
+      markers.set(first.node, [...(markers.get(first.node) ?? []), draw]);
     });
+    return markers;
   }
 
   drawTextNodes() {
     const walker = this.node.ownerDocument.createTreeWalker(this.node, NodeFilter.SHOW_TEXT);
     const range = this.node.ownerDocument.createRange();
+    const markers = this.listMarkersByFirstText();
     let textNode = walker.nextNode();
     while (textNode) {
+      markers.get(textNode)?.forEach(draw => draw());
       this.drawTextNode(textNode, range);
       textNode = walker.nextNode();
     }
@@ -1123,7 +1132,8 @@ function getTextLineRuns(textNode: Node, range: Range) {
   return runs.map((run) => ({ text: run.text.replace(/\s+/g, ' '), rect: run.rect })).filter((run) => run.text.trim());
 }
 
-function getFirstTextRect(root: Element) {
+/** The first non-blank text node under `root` and where it is drawn (null if it has no visible box). */
+function getFirstText(root: Element): { node: Node; rect: DOMRect } | null {
   const walker = root.ownerDocument.createTreeWalker(root, NodeFilter.SHOW_TEXT);
   const range = root.ownerDocument.createRange();
   let node = walker.nextNode();
@@ -1132,8 +1142,7 @@ function getFirstTextRect(root: Element) {
       range.selectNodeContents(node);
       const rect = Array.from(range.getClientRects()).find((item) => item.width || item.height);
       range.detach();
-      if (rect) return rect;
-      return null;
+      return rect ? { node, rect } : null;
     }
     node = walker.nextNode();
   }
